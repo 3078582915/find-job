@@ -1,4 +1,4 @@
-import { closeBrowser, ensureBrowserWithLogin, evaluateOnPlatformTab, hasLoginState, navigatePlatformTab } from './browser';
+import { closeBrowser, ensureBrowser, ensureBrowserWithLogin, evaluateOnPlatformTab, hasLoginState, navigatePlatformTab } from './browser';
 import type { CrawledJob } from './boss';
 import type { PlatformName } from '../platformRegistry';
 
@@ -79,10 +79,8 @@ function extractJobId(platform: SupportedCrawlerPlatform, url: string): string {
       /jobid=([^&]+)/i,
       /\/([^/?#]+)\.html/i,
     ],
-    lagou: [
-      /\/jobs\/([^/?#]+)\.html/i,
-      /positionId=([^&]+)/i,
-      /jobId=([^&]+)/i,
+    shixiseng: [
+      /\/intern\/(inn_[^/?#]+)/i,
     ],
   };
 
@@ -143,6 +141,14 @@ function parseJobCardsScript(config: StandardCrawlerConfig): string {
   };
   const isJobLink = (url) => {
     const text = String(url || '');
+    if (config.platform === '51job') {
+      try {
+        const parsed = new URL(text, config.baseUrl);
+        return /\\/\\d+\\.html$/i.test(parsed.pathname) && !/\\/co[^/]*\\.html$/i.test(parsed.pathname);
+      } catch {
+        return false;
+      }
+    }
     return config.linkIncludes.some((part) => text.includes(part));
   };
   const findLink = (root) => {
@@ -150,7 +156,14 @@ function parseJobCardsScript(config: StandardCrawlerConfig): string {
     const explicit = pickElement(root, config.selectors.link);
     if (explicit?.href && isJobLink(explicit.href)) return explicit;
     const links = Array.from(root.querySelectorAll('a[href]'));
-    return links.find((link) => isJobLink(link.href)) || links[0] || null;
+    return links.find((link) => isJobLink(link.href)) || null;
+  };
+  const read51JobSensorData = (root) => {
+    if (config.platform !== '51job') return {};
+    const node = root.querySelector('[sensorsdata*="jobId"]');
+    const raw = node?.getAttribute?.('sensorsdata');
+    if (!raw) return {};
+    try { return JSON.parse(raw); } catch { return {}; }
   };
   const extractSalary = (value) => {
     const text = compactText(value);
@@ -182,7 +195,13 @@ function parseJobCardsScript(config: StandardCrawlerConfig): string {
 
   let cards = [];
   for (const selector of config.selectors.card) {
-    try { cards.push(...Array.from(document.querySelectorAll(selector))); } catch {}
+    try {
+      const matches = Array.from(document.querySelectorAll(selector));
+      if (matches.length > 0) {
+        cards = matches;
+        break;
+      }
+    } catch {}
   }
   if (cards.length === 0) {
     cards = Array.from(document.querySelectorAll('a[href]'))
@@ -192,16 +211,29 @@ function parseJobCardsScript(config: StandardCrawlerConfig): string {
   cards = Array.from(new Set(cards)).filter(isUsefulCard);
 
   for (const card of cards) {
+    const sensorData = read51JobSensorData(card);
     const linkEl = findLink(card);
-    const jobUrl = absolutizeUrl(linkEl?.href || '');
-    const title = pickText(card, config.selectors.title) || normalizeText(readAttrText(linkEl) || linkEl?.textContent);
+    const sensorJobId = normalizeText(sensorData.jobId);
+    const sensorJobUrl = sensorJobId ? 'https://jobs.51job.com/all/' + encodeURIComponent(sensorJobId) + '.html' : '';
+    const jobUrl = absolutizeUrl(linkEl?.href || sensorJobUrl);
+    const title = normalizeText(sensorData.jobTitle)
+      || pickText(card, config.selectors.title)
+      || normalizeText(readAttrText(linkEl) || linkEl?.textContent);
     if (!title || !jobUrl || title.length > 120) continue;
 
     const tags = parseTags(card);
-    const salary = pickText(card, config.selectors.salary) || extractSalary(card.textContent);
-    const location = pickText(card, config.selectors.location);
-    const experience = pickText(card, config.selectors.experience) || tags.find((tag) => /经验|应届|在校|年|不限/.test(tag)) || '';
-    const education = pickText(card, config.selectors.education) || tags.find((tag) => /学历|本科|硕士|博士|大专|高中|不限/.test(tag)) || '';
+    const salary = normalizeText(sensorData.jobSalary)
+      || pickText(card, config.selectors.salary)
+      || extractSalary(card.textContent);
+    const location = normalizeText(sensorData.jobArea) || pickText(card, config.selectors.location);
+    const experience = normalizeText(sensorData.jobYear)
+      || pickText(card, config.selectors.experience)
+      || tags.find((tag) => /经验|应届|在校|年|不限/.test(tag))
+      || '';
+    const education = normalizeText(sensorData.jobDegree)
+      || pickText(card, config.selectors.education)
+      || tags.find((tag) => /学历|本科|硕士|博士|大专|高中|不限/.test(tag))
+      || '';
     const companySize = pickText(card, config.selectors.companySize) || tags.find((tag) => /人$|少于|以上|公司规模/.test(tag)) || '';
     const industry = pickText(card, config.selectors.industry);
     let companyName = pickText(card, config.selectors.company);
@@ -223,6 +255,82 @@ function parseJobCardsScript(config: StandardCrawlerConfig): string {
     });
   }
 
+  return jobs;
+})()
+  `;
+}
+
+function parseShixisengJobsScript(config: StandardCrawlerConfig): string {
+  return `
+(async () => {
+  const platform = ${JSON.stringify(config.platform)};
+  const normalizeText = (value) => String(value || '')
+    .replace(/\\u00a0/g, ' ')
+    .replace(/\\s{2,}/g, ' ')
+    .trim();
+  const pickText = (root, selector) => normalizeText(root.querySelector(selector)?.textContent || '');
+  const links = Array.from(new Set(
+    Array.from(document.querySelectorAll('a[href*="/intern/"]'))
+      .map((link) => link.href)
+      .filter((href) => /\\/intern\\/inn_[^/?#]+/i.test(href))
+  )).slice(0, 30);
+
+  const parseDetail = async (href) => {
+    try {
+      const response = await fetch(href, { credentials: 'include' });
+      if (!response.ok) return null;
+      const html = await response.text();
+      const detail = new DOMParser().parseFromString(html, 'text/html');
+      const title = pickText(detail, '.new_job_name');
+      const company = pickText(detail, '.com-name');
+      const salary = pickText(detail, '.job_money');
+      const location = pickText(detail, '.job_position');
+      const education = pickText(detail, '.job_academic');
+      const schedule = Array.from(detail.querySelectorAll('.job_week, .job_time'))
+        .map((node) => normalizeText(node.textContent))
+        .filter(Boolean)
+        .join(' · ');
+      let tags = Array.from(detail.querySelectorAll('.job_good_list span, .job_good_list li'))
+        .map((node) => normalizeText(node.textContent))
+        .filter(Boolean);
+      if (tags.length === 0) {
+        const tagText = pickText(detail, '.job_good_list');
+        if (tagText) tags = [tagText];
+      }
+      const canonicalUrl = (() => {
+        try {
+          const url = new URL(href);
+          return url.origin + url.pathname;
+        } catch {
+          return href;
+        }
+      })();
+
+      if (!title || !company || !canonicalUrl) return null;
+      return {
+        platform,
+        job_id: '',
+        title,
+        company_name: company,
+        salary,
+        location,
+        experience: schedule,
+        education,
+        company_size: '',
+        company_industry: '',
+        job_url: canonicalUrl,
+        tags: Array.from(new Set(tags)).slice(0, 12),
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const jobs = [];
+  for (let index = 0; index < links.length; index += 5) {
+    const batch = await Promise.all(links.slice(index, index + 5).map(parseDetail));
+    jobs.push(...batch.filter(Boolean));
+  }
   return jobs;
 })()
   `;
@@ -276,8 +384,8 @@ const CRAWLER_CONFIGS: Record<SupportedCrawlerPlatform, StandardCrawlerConfig> =
     challengeKeywords: ['安全验证', '访问验证', '验证码', '滑动验证', '登录后查看'],
     selectors: {
       card: ['.joblist-item', '.job-item', '.j_joblist .e', '.e', '[class*="joblist"] [class*="item"]', 'a[href*="jobs.51job.com"]'],
-      title: ['.jname', '.job-title', '[class*="job-title"]', '[class*="jname"]', 'a[href*="jobs.51job.com"]'],
-      company: ['.cname', '.company-name', '[class*="company-name"]', '[class*="cname"]'],
+      title: ['.job-name', '.jname', '.job-title', '[class*="job-title"]', '[class*="jname"]'],
+      company: ['.company', '.cname', '.company-name', '[class*="company-name"]', '[class*="cname"]'],
       salary: ['.sal', '.salary', '[class*="salary"]', '[class*="sal"]'],
       location: ['.area', '[class*="area"]', '[class*="location"]', '.d'],
       experience: ['[class*="experience"]', '[class*="workyear"]'],
@@ -288,33 +396,32 @@ const CRAWLER_CONFIGS: Record<SupportedCrawlerPlatform, StandardCrawlerConfig> =
       link: ['a[href*="jobs.51job.com"]', 'a[href*="/job/"]', 'a[href*="jobid="]'],
     },
   },
-  lagou: {
-    platform: 'lagou',
-    label: '拉勾网',
-    baseUrl: 'https://www.lagou.com',
-    homeUrl: 'https://www.lagou.com',
+  shixiseng: {
+    platform: 'shixiseng',
+    label: '实习僧',
+    baseUrl: 'https://www.shixiseng.com',
+    homeUrl: 'https://www.shixiseng.com/interns/',
     buildSearchUrl: (query, city, page) => {
-      const url = new URL('https://www.lagou.com/wn/jobs');
-      url.searchParams.set('kd', query);
-      url.searchParams.set('pn', String(page));
-      url.searchParams.set('fromSearch', 'true');
+      const url = new URL('https://www.shixiseng.com/interns/');
+      url.searchParams.set('keyword', query);
+      url.searchParams.set('p', String(page));
       if (city && city !== '全国') url.searchParams.set('city', city);
       return url.toString();
     },
-    linkIncludes: ['lagou.com/wn/jobs/', 'lagou.com/jobs/', 'positionId=', 'jobId='],
+    linkIncludes: ['shixiseng.com/intern/inn_'],
     challengeKeywords: ['安全验证', '访问验证', '验证码', '滑动验证', '登录后查看'],
     selectors: {
-      card: ['.item__10RTO', '.job-card', '.position-list-item', '[class*="job-card"]', '[class*="position"] [class*="item"]', 'a[href*="/jobs/"]'],
-      title: ['.p-top__1F7CL a', '[class*="position"] a', '[class*="job-name"]', '[class*="name"]', 'a[href*="/jobs/"]'],
-      company: ['.company-name__2-SjF', '[class*="company"] a', '[class*="company-name"]', '[class*="companyName"]'],
-      salary: ['.money__3Lkgq', '[class*="salary"]', '[class*="money"]'],
-      location: ['[class*="district"]', '[class*="location"]', '[class*="city"]'],
-      experience: ['[class*="experience"]', '[class*="workYear"]'],
-      education: ['[class*="education"]', '[class*="degree"]'],
-      companySize: ['[class*="company"] [class*="size"]', '[class*="scale"]'],
-      industry: ['[class*="industry"]', '[class*="company"] [class*="type"]'],
-      tags: ['[class*="tag"]', '[class*="label"]'],
-      link: ['a[href*="/wn/jobs/"]', 'a[href*="/jobs/"]', 'a[href*="positionId="]'],
+      card: ['a[href*="/intern/inn_"]'],
+      title: ['.new_job_name'],
+      company: ['.com-name'],
+      salary: ['.job_money'],
+      location: ['.job_position'],
+      experience: ['.job_week', '.job_time'],
+      education: ['.job_academic'],
+      companySize: [],
+      industry: [],
+      tags: ['.job_good_list span'],
+      link: ['a[href*="/intern/inn_"]'],
     },
   },
 };
@@ -326,13 +433,17 @@ export async function crawlStandardPlatform(
   maxPages = 1
 ): Promise<{ jobs: CrawledJob[]; error?: string; needLogin?: boolean }> {
   const config = CRAWLER_CONFIGS[platform];
-  if (!hasLoginState(platform)) {
+  if (platform !== 'shixiseng' && !hasLoginState(platform)) {
     return { jobs: [], needLogin: true, error: `${config.label} 未登录，请先在平台管理页面完成浏览器登录` };
   }
 
   try {
     const allJobs: CrawledJob[] = [];
-    await ensureBrowserWithLogin(platform, config.homeUrl);
+    if (platform === 'shixiseng') {
+      await ensureBrowser(platform, config.homeUrl);
+    } else {
+      await ensureBrowserWithLogin(platform, config.homeUrl);
+    }
 
     for (let page = 1; page <= maxPages; page++) {
       const url = config.buildSearchUrl(query, city, page);
@@ -373,8 +484,12 @@ export async function crawlStandardPlatform(
         break;
       }
 
-      const parsedJobs = await evaluateOnPlatformTab(platform, parseJobCardsScript(config), 30000);
-      const jobs = Array.isArray(parsedJobs) ? parsedJobs as CrawledJob[] : [];
+      const parserScript = platform === 'shixiseng'
+        ? parseShixisengJobsScript(config)
+        : parseJobCardsScript(config);
+      const parsedJobs = await evaluateOnPlatformTab(platform, parserScript, 60000);
+      const jobs = (Array.isArray(parsedJobs) ? parsedJobs as CrawledJob[] : [])
+        .filter((job) => platform !== 'shixiseng' || !city || city === '全国' || job.location.includes(city));
       console.log(`📊 [${config.label}] 第 ${page} 页解析到 ${jobs.length} 个职位`);
 
       for (const job of jobs) {
@@ -405,6 +520,6 @@ export function crawl51Job(query: string, city?: string, maxPages?: number) {
   return crawlStandardPlatform('51job', query, city, maxPages);
 }
 
-export function crawlLagou(query: string, city?: string, maxPages?: number) {
-  return crawlStandardPlatform('lagou', query, city, maxPages);
+export function crawlShixiseng(query: string, city?: string, maxPages?: number) {
+  return crawlStandardPlatform('shixiseng', query, city, maxPages);
 }

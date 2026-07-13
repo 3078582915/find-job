@@ -253,6 +253,7 @@ router.post('/platforms/:name/login', async (req, res) => {
       platform: config.name,
       loginUrl: config.loginUrl,
       successUrlPattern: config.successUrlPattern,
+      loginCheckExpression: config.loginCheckExpression,
       timeoutMs: 120000,
     });
 

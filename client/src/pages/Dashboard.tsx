@@ -40,7 +40,7 @@ export default function Dashboard() {
       ) : null}
 
       {/* 快捷操作 */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         <button
           onClick={() => navigate('/jobs')}
           className="bg-accent border-2 border-accent text-white rounded-xl p-5 flex items-center gap-4 hover:bg-[#FF8C5A] hover:-translate-y-0.5 hover:shadow-md transition-all duration-300"
@@ -50,7 +50,6 @@ export default function Dashboard() {
         </button>
         {[
           { label: '平台登录', icon: '🔗', to: '/platforms' },
-          { label: '投递设置', icon: '⚙️', to: '/settings' },
           { label: '查看记录', icon: '📈', to: '/history' },
         ].map((btn) => (
           <button

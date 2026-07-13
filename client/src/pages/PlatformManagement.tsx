@@ -12,7 +12,12 @@ export default function PlatformManagement() {
   const handleLoginPlatform = async (name: string) => {
     const label = PLATFORM_LABELS[name] || name;
     setLoginLoading(name);
-    setMessage({ type: 'info', text: `正在打开浏览器，请在弹出的 Chrome 窗口中完成 ${label} 登录...` });
+    setMessage({
+      type: 'info',
+      text: name === 'shixiseng'
+        ? '正在打开实习僧登录窗口，可使用密码、短信、微信、微博或 QQ 登录。'
+        : `正在打开浏览器，请在弹出的 Chrome 窗口中完成 ${label} 登录...`,
+    });
     try {
       await doLoginPlatform(name);
       setMessage({ type: 'success', text: `${label} 登录成功！现在可以去职位广场抓取职位了。` });
@@ -86,7 +91,9 @@ export default function PlatformManagement() {
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold">{p.label}</h3>
                   <p className="text-xs text-[#7F8C8D]">
-                    {p.loginType === 'qrcode' ? '扫码/浏览器登录' : '浏览器登录'}
+                    {!p.requiresLoginForCrawl
+                      ? '公开职位无需登录，投递前可登录'
+                      : p.loginType === 'qrcode' ? '扫码/浏览器登录' : '浏览器登录'}
                   </p>
                 </div>
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${

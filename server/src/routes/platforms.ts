@@ -15,7 +15,15 @@ router.get('/platforms', (_req, res) => {
   const platforms = PLATFORM_CONFIG.map(config => {
     const account = accounts.find(a => a.platform_name === config.name);
     const loggedIn = hasLoginState(config.name);
-    const { loginUrl: _loginUrl, successUrlPattern: _successUrlPattern, hosts: _hosts, ...publicConfig } = config;
+    const {
+      loginUrl: _loginUrl,
+      successUrlPattern: _successUrlPattern,
+      hosts: _hosts,
+      authCookieNames: _authCookieNames,
+      loginCheckExpression: _loginCheckExpression,
+      requiresVerifiedLoginState: _requiresVerifiedLoginState,
+      ...publicConfig
+    } = config;
     return {
       ...publicConfig,
       bound: loggedIn,
@@ -64,7 +72,7 @@ router.post('/platforms/:name/bind', (req, res) => {
 router.delete('/platforms/:name/logout', (req, res) => {
   const { name } = req.params;
   db.prepare(
-    'UPDATE platform_accounts SET login_state = ?, status = ? WHERE user_id = ? AND platform_name = ?'
+    'UPDATE platform_accounts SET login_state = ?, status = ?, last_login = NULL WHERE user_id = ? AND platform_name = ?'
   ).run('unlogged', 'inactive', DEMO_USER_ID, name);
 
   // 删除登录态文件

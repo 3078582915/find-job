@@ -71,7 +71,7 @@ export default function JobSquare() {
     }
 
     const selectedPlatform = platforms.find(p => p.name === crawlPlatform);
-    if (selectedPlatform && !selectedPlatform.bound) {
+    if (selectedPlatform?.requiresLoginForCrawl && !selectedPlatform.bound) {
       setCrawlMessage({ type: 'error', text: `请先在"平台管理"页面登录 ${selectedPlatform.label}` });
       return;
     }
@@ -231,10 +231,9 @@ export default function JobSquare() {
           className="px-3 py-2 border border-[#E1E8ED] rounded-lg bg-[#F5F7FA] text-sm cursor-pointer"
         >
           <option value="all">全部平台</option>
-          <option value="boss">BOSS直聘</option>
-          <option value="zhilian">智联招聘</option>
-          <option value="51job">前程无忧</option>
-          <option value="lagou">拉勾网</option>
+          {PLATFORM_CONFIG.map((platform) => (
+            <option key={platform.name} value={platform.name}>{platform.label}</option>
+          ))}
         </select>
         <input
           value={filterKeyword}

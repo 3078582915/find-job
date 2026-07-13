@@ -1,4 +1,4 @@
-export type PlatformName = 'boss' | 'zhilian' | '51job' | 'lagou';
+export type PlatformName = 'boss' | 'zhilian' | '51job' | 'shixiseng';
 
 export interface PlatformConfig {
   name: PlatformName;
@@ -9,6 +9,10 @@ export interface PlatformConfig {
   loginUrl: string;
   successUrlPattern: RegExp;
   hosts: string[];
+  authCookieNames?: string[];
+  loginCheckExpression?: string;
+  requiresVerifiedLoginState?: boolean;
+  requiresLoginForCrawl: boolean;
 }
 
 export const PLATFORM_CONFIG: PlatformConfig[] = [
@@ -21,6 +25,8 @@ export const PLATFORM_CONFIG: PlatformConfig[] = [
     loginUrl: 'https://login.zhipin.com/',
     successUrlPattern: /zhipin\.com\/web\/geek\//,
     hosts: ['zhipin.com', 'bosszhipin.com', 'kanzhun.com'],
+    authCookieNames: ['wt2', 'zp_at', '__zp_stoken__'],
+    requiresLoginForCrawl: true,
   },
   {
     name: 'zhilian',
@@ -31,6 +37,8 @@ export const PLATFORM_CONFIG: PlatformConfig[] = [
     loginUrl: 'https://passport.zhaopin.com/',
     successUrlPattern: /https?:\/\/(?!passport\.)[^/]*zhaopin\.com/i,
     hosts: ['zhaopin.com'],
+    authCookieNames: ['at', 'rt', 'zp_passport_deepknow_sessionId'],
+    requiresLoginForCrawl: true,
   },
   {
     name: '51job',
@@ -41,16 +49,37 @@ export const PLATFORM_CONFIG: PlatformConfig[] = [
     loginUrl: 'https://login.51job.com/login.php',
     successUrlPattern: /https?:\/\/(?!(?:login|passport)\.)[^/]*51job\.com/i,
     hosts: ['51job.com', '51jobcdn.com'],
+    authCookieNames: ['51job', 'ps'],
+    requiresLoginForCrawl: true,
   },
   {
-    name: 'lagou',
-    label: '拉勾网',
-    logo: '拉',
-    color: '#00BFFF',
+    name: 'shixiseng',
+    label: '实习僧',
+    logo: '实',
+    color: '#FF7A45',
     loginType: 'browser',
-    loginUrl: 'https://passport.lagou.com/login/login.html',
-    successUrlPattern: /https?:\/\/(?!(?:passport|login)\.)[^/]*lagou\.com/i,
-    hosts: ['lagou.com'],
+    loginUrl: 'https://www.shixiseng.com/',
+    successUrlPattern: /https?:\/\/[^/]*shixiseng\.com/i,
+    hosts: ['shixiseng.com', 'xiaoyuanzhao.com'],
+    loginCheckExpression: `(() => {
+      const status = document.querySelector('.login-status, header [class*="login-status"]');
+      const account = status?.querySelector('.logined');
+      if (!status || !account) return false;
+
+      const statusRect = status.getBoundingClientRect();
+      const accountRect = account.getBoundingClientRect();
+      const accountText = String(account.textContent || '').replace(/\\s+/g, ' ').trim();
+      const hasIdentityElement = Boolean(
+        account.querySelector('a[href], img, [class*="avatar"], [class*="user"]')
+      );
+      return statusRect.width > 0
+        && statusRect.height > 0
+        && accountRect.width > 0
+        && accountRect.height > 0
+        && (Boolean(accountText) || hasIdentityElement);
+    })()`,
+    requiresVerifiedLoginState: true,
+    requiresLoginForCrawl: false,
   },
 ];
 

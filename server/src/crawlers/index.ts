@@ -1,5 +1,5 @@
 import { crawlBoss, type CrawledJob } from './boss';
-import { crawl51Job, crawlLagou, crawlZhilian } from './otherPlatforms';
+import { crawl51Job, crawlShixiseng, crawlZhilian } from './otherPlatforms';
 import type { PlatformName } from '../platformRegistry';
 
 export type { CrawledJob };
@@ -17,8 +17,8 @@ export function crawlJobsByPlatform(
       return crawlZhilian(query, city, pages);
     case '51job':
       return crawl51Job(query, city, pages);
-    case 'lagou':
-      return crawlLagou(query, city, pages);
+    case 'shixiseng':
+      return crawlShixiseng(query, city, pages);
     default:
       return Promise.resolve({ jobs: [], error: `平台 ${platform} 暂不支持` });
   }

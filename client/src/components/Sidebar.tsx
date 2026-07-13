@@ -4,10 +4,8 @@ import { NavLink } from 'react-router-dom';
 const navItems = [
   { path: '/', label: '仪表盘', icon: '📊' },
   { path: '/jobs', label: '职位广场', icon: '🔍' },
-  { path: '/resume', label: '简历管理', icon: '📝' },
   { path: '/platforms', label: '平台管理', icon: '🔗' },
-  { path: '/settings', label: '投递设置', icon: '⚙️' },
-  { path: '/history', label: '投递记录', icon: '📋' },
+  { path: '/history', label: '查看记录', icon: '📋' },
 ];
 
 export default function Sidebar() {

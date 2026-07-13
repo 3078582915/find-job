@@ -97,6 +97,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_job_clicks_date ON job_clicks(clicked_at);
 `);
 
+const legacyLagouAccount = db.prepare(
+  "SELECT id FROM platform_accounts WHERE platform_name = 'lagou' LIMIT 1"
+).get() as { id: string } | undefined;
+const shixisengAccount = db.prepare(
+  "SELECT id FROM platform_accounts WHERE platform_name = 'shixiseng' LIMIT 1"
+).get() as { id: string } | undefined;
+if (legacyLagouAccount && !shixisengAccount) {
+  db.prepare(`
+    UPDATE platform_accounts
+    SET platform_name = 'shixiseng', account_id = NULL, credentials = '{}',
+        status = 'inactive', login_state = 'unlogged', last_login = NULL, last_sync = NULL
+    WHERE id = ?
+  `).run(legacyLagouAccount.id);
+}
+
 export function seed() {
   const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
   if (userCount.count > 0) return;
@@ -130,7 +145,7 @@ export function seed() {
   insertPlatform.run('p001', DEMO_USER_ID, 'boss', null, '{}', 'inactive', 'unlogged');
   insertPlatform.run('p002', DEMO_USER_ID, 'zhilian', null, '{}', 'inactive', 'unlogged');
   insertPlatform.run('p003', DEMO_USER_ID, '51job', null, '{}', 'inactive', 'unlogged');
-  insertPlatform.run('p004', DEMO_USER_ID, 'lagou', null, '{}', 'inactive', 'unlogged');
+  insertPlatform.run('p004', DEMO_USER_ID, 'shixiseng', null, '{}', 'inactive', 'unlogged');
 
   db.prepare(
     'INSERT INTO delivery_settings (id, user_id, keywords, salary_range, locations, daily_limit, interval_minutes, greeting_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'

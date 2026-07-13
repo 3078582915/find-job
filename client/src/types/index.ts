@@ -29,6 +29,7 @@ export interface Platform {
   lastLogin: string | null;
   lastSync: string | null;
   accountId: string | null;
+  requiresLoginForCrawl: boolean;
 }
 
 // ========== 职位 ==========
@@ -123,7 +124,8 @@ export const PLATFORM_LABELS: Record<string, string> = {
   boss: 'BOSS直聘',
   zhilian: '智联招聘',
   '51job': '前程无忧',
-  lagou: '拉勾网',
+  shixiseng: '实习僧',
+  lagou: '拉勾网（历史）',
 };
 
 export const STATUS_LABELS: Record<string, string> = {
@@ -140,12 +142,13 @@ export const PLATFORM_CONFIG = [
   { name: 'boss', label: 'BOSS直聘', logo: 'B', color: '#00D4AA' },
   { name: 'zhilian', label: '智联招聘', logo: '智', color: '#FF6B35' },
   { name: '51job', label: '前程无忧', logo: '51', color: '#1E3A5F' },
-  { name: 'lagou', label: '拉勾网', logo: '拉', color: '#00BFFF' },
+  { name: 'shixiseng', label: '实习僧', logo: '实', color: '#FF7A45' },
 ];
 
 export const PLATFORM_COLORS: Record<string, string> = {
   boss: '#00D4AA',
   zhilian: '#FF6B35',
   '51job': '#1E3A5F',
+  shixiseng: '#FF7A45',
   lagou: '#00BFFF',
 };

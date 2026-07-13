@@ -162,6 +162,22 @@ function matchesAnyHost(value: string, hosts: string[]): boolean {
   return hosts.some((host) => value.includes(host));
 }
 
+function hasUsableLoginCookie(platform: string, cookies: any[]): boolean {
+  const config = getPlatformConfig(platform);
+  const hosts = config?.hosts || [];
+  const authCookieNames = config?.authCookieNames || [];
+
+  return cookies.some((cookie: any) => {
+    const domain = String(cookie.domain || '');
+    const name = String(cookie.name || '');
+    const expires = Number(cookie.expires ?? -1);
+    const notExpired = expires <= 0 || expires * 1000 > Date.now();
+    const domainMatches = hosts.length === 0 || matchesAnyHost(domain, hosts);
+    const authCookieMatches = authCookieNames.length === 0 || authCookieNames.includes(name);
+    return domainMatches && authCookieMatches && notExpired;
+  });
+}
+
 async function extractCookiesViaCDP(platform: string): Promise<any[]> {
   const hosts = getPlatformHosts(platform);
   const target = await getPreferredPageTarget(hosts);
@@ -323,14 +339,9 @@ export function hasLoginState(platform: string): boolean {
   try {
     const state = JSON.parse(fs.readFileSync(storageStatePath, 'utf-8'));
     if (!Array.isArray(state.cookies)) return false;
-    const hosts = getPlatformHosts(platform);
-    return state.cookies.some((cookie: any) => {
-      const domain = String(cookie.domain || '');
-      const expires = Number(cookie.expires ?? -1);
-      const notExpired = expires <= 0 || expires * 1000 > Date.now();
-      const domainMatches = hosts.length === 0 || matchesAnyHost(domain, hosts);
-      return domainMatches && notExpired;
-    });
+    const requiresVerification = getPlatformConfig(platform)?.requiresVerifiedLoginState === true;
+    if (requiresVerification && state.verifiedLogin !== true) return false;
+    return hasUsableLoginCookie(platform, state.cookies);
   } catch {
     return false;
   }
@@ -363,6 +374,20 @@ async function launchChromeWithDebug(userDataDir: string, url: string): Promise<
 
   if (await isPortInUse(DEBUG_PORT)) {
     console.log(`✅ Chrome 调试端口 ${DEBUG_PORT} 已在运行，复用现有实例`);
+    try {
+      const target = await getPreferredPageTarget();
+      if (target?.webSocketDebuggerUrl && url && url !== 'about:blank') {
+        const results = await cdpRequest<Map<number, any>>(target.webSocketDebuggerUrl, [
+          { id: 1, method: 'Page.enable' },
+          { id: 2, method: 'Page.navigate', params: { url } },
+        ], undefined, 10000);
+        const navigation = results.get(2);
+        if (navigation?.error) throw new Error(navigation.error.message);
+        await sleep(800);
+      }
+    } catch (err) {
+      console.log(`⚠️ 复用 Chrome 时导航失败：${err instanceof Error ? err.message : err}`);
+    }
     return true;
   }
 
@@ -406,13 +431,58 @@ interface LoginOptions {
   platform: string;
   loginUrl: string;
   successUrlPattern: string | RegExp;
+  loginCheckExpression?: string;
   timeoutMs?: number;
+}
+
+async function prepareInteractiveLoginPage(platform: string): Promise<void> {
+  if (platform !== 'shixiseng') return;
+
+  const expression = `(() => {
+    const isVisible = (node) => {
+      if (!node) return false;
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return style.display !== 'none'
+        && style.visibility !== 'hidden'
+        && rect.width > 0
+        && rect.height > 0;
+    };
+    const visibleLoginInput = Array.from(document.querySelectorAll('input[type="password"], input[name="username"]'))
+      .some(isVisible);
+    if (visibleLoginInput) return 'ready';
+
+    const visibleLoginQr = Array.from(document.querySelectorAll('#qrcode, .qrcode-box img'))
+      .some((node) => isVisible(node) && node.getBoundingClientRect().width >= 80);
+    if (visibleLoginQr) return 'ready';
+
+    const target = Array.from(document.querySelectorAll('.login-btn, a, button, [role="button"]'))
+      .find((node) => isVisible(node) && /^(登录|登录\/注册)$/.test(node.textContent?.trim() || ''));
+    if (!target) return 'waiting';
+    target.click();
+    return 'clicked';
+  })()`;
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      const state = await evaluateOnPlatformTab(platform, expression, 5000);
+      if (state === 'ready') return;
+      if (state === 'clicked') {
+        await sleep(800);
+        return;
+      }
+    } catch {
+      // The login page can still be loading; retry briefly.
+    }
+    await sleep(500);
+  }
 }
 
 export async function loginInteractive({
   platform,
   loginUrl,
   successUrlPattern,
+  loginCheckExpression,
   timeoutMs = 120000,
 }: LoginOptions): Promise<boolean> {
   const userDataDir = getProfileDir(platform);
@@ -424,6 +494,8 @@ export async function loginInteractive({
     throw new Error('无法启动 Chrome');
   }
 
+  await prepareInteractiveLoginPage(platform);
+
   const pattern =
     typeof successUrlPattern === 'string' ? new RegExp(successUrlPattern) : successUrlPattern;
 
@@ -433,6 +505,7 @@ export async function loginInteractive({
   const startTime = Date.now();
   let loggedIn = false;
   let lastUrl = '';
+  let capturedCookies: any[] | null = null;
 
   while (Date.now() - startTime < timeoutMs) {
     const tabs = await getChromeTabs();
@@ -442,16 +515,47 @@ export async function loginInteractive({
       throw new Error('Chrome 浏览器已关闭，请重试');
     }
 
+    let successUrlMatched = false;
     for (const tab of tabs) {
       if (tab.url && tab.url !== lastUrl && tab.url !== 'about:blank') {
         console.log(`📍 Tab: ${tab.url}`);
         lastUrl = tab.url;
       }
       if (tab.url && pattern.test(tab.url)) {
-        loggedIn = true;
-        console.log(`✅ ${platform} 登录成功（URL 匹配: ${tab.url}）`);
-        break;
+        successUrlMatched = true;
       }
+    }
+
+    try {
+      if (loginCheckExpression) {
+        const pageConfirmed = Boolean(await evaluateOnPlatformTab(platform, loginCheckExpression, 5000));
+        if (pageConfirmed) {
+          const cookies = await extractCookiesViaCDP(platform);
+          if (cookies.length > 0) {
+            loggedIn = true;
+            capturedCookies = cookies;
+            console.log(`✅ ${platform} 登录成功（页面账号状态已确认）`);
+          }
+        }
+      }
+
+      if (loginCheckExpression) {
+        if (loggedIn) break;
+        await sleep(2000);
+        continue;
+      }
+
+      const cookies = await extractCookiesViaCDP(platform);
+      const hasAuthCookie = hasUsableLoginCookie(platform, cookies);
+      const requiresAuthCookie = (getPlatformConfig(platform)?.authCookieNames?.length || 0) > 0;
+
+      if (hasAuthCookie || (successUrlMatched && !requiresAuthCookie)) {
+        loggedIn = true;
+        capturedCookies = cookies;
+        console.log(`✅ ${platform} 登录成功（${hasAuthCookie ? '检测到登录 Cookie' : 'URL 匹配'}）`);
+      }
+    } catch {
+      // Chrome may be navigating between pages; retry on the next poll.
     }
 
     if (loggedIn) break;
@@ -464,8 +568,15 @@ export async function loginInteractive({
 
   console.log('💾 正在提取登录态（WebSocket CDP）...');
   try {
-    const cookies = await extractCookiesViaCDP(platform);
-    const state = { cookies, origins: [] };
+    const cookies = capturedCookies || await extractCookiesViaCDP(platform);
+    if (!hasUsableLoginCookie(platform, cookies)) {
+      throw new Error('未检测到有效的登录 Cookie');
+    }
+    const state = {
+      cookies,
+      origins: [],
+      verifiedLogin: getPlatformConfig(platform)?.requiresVerifiedLoginState === true,
+    };
     fs.writeFileSync(storageStatePath, JSON.stringify(state, null, 2));
     console.log(`✅ 登录态已保存（${cookies.length} 个 cookies）`);
   } catch (err) {
@@ -519,12 +630,8 @@ async function applyCookiesViaCDP(platform: string): Promise<void> {
   if (msg?.error) throw new Error(msg.error.message);
 }
 
-export async function ensureBrowserWithLogin(platform: string, startUrl = 'about:blank'): Promise<void> {
+export async function ensureBrowser(platform: string, startUrl = 'about:blank'): Promise<void> {
   const storageStatePath = getStorageStatePath(platform);
-  if (!fs.existsSync(storageStatePath)) {
-    throw new Error(`${platform} 未登录，请先扫码登录`);
-  }
-
   const userDataDir = getProfileDir(platform);
   fs.mkdirSync(userDataDir, { recursive: true });
 
@@ -533,10 +640,19 @@ export async function ensureBrowserWithLogin(platform: string, startUrl = 'about
     if (!launched) throw new Error('无法启动 Chrome');
   }
 
-  try {
-    await applyCookiesViaCDP(platform);
-  } catch (err) {
-    console.log(`⚠️ 加载 cookies 失败：${err instanceof Error ? err.message : err}`);
-    throw err;
+  if (fs.existsSync(storageStatePath)) {
+    try {
+      await applyCookiesViaCDP(platform);
+    } catch (err) {
+      console.log(`⚠️ 加载 cookies 失败：${err instanceof Error ? err.message : err}`);
+      throw err;
+    }
   }
+}
+
+export async function ensureBrowserWithLogin(platform: string, startUrl = 'about:blank'): Promise<void> {
+  if (!hasLoginState(platform)) {
+    throw new Error(`${platform} 未登录，请先完成浏览器登录`);
+  }
+  await ensureBrowser(platform, startUrl);
 }
