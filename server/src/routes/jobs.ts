@@ -2,9 +2,10 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import db from '../database';
 import { v4 as uuidv4 } from '../utils';
-import { crawlBoss, type CrawledJob } from '../crawlers/boss';
+import { crawlJobsByPlatform, type CrawledJob } from '../crawlers';
 import { loginInteractive, hasLoginState } from '../crawlers/browser';
 import { decodeBossPrivateText } from '../salaryCodec';
+import { getPlatformConfig, isSupportedPlatform } from '../platformRegistry';
 
 const router = Router();
 const DEMO_USER_ID = 'u001';
@@ -28,15 +29,13 @@ router.post('/jobs/crawl', async (req, res) => {
   const pages = toIntInRange(req.body.pages, 2, 1, 5);
 
   if (!query) return res.status(400).json({ error: '请提供搜索关键词' });
+  if (!isSupportedPlatform(platform)) {
+    return res.status(400).json({ error: `平台 ${platform} 暂不支持` });
+  }
 
   try {
-    let result: { jobs: CrawledJob[]; error?: string; needLogin?: boolean };
-
-    if (platform === 'boss') {
-      result = await crawlBoss(query, city, pages);
-    } else {
-      return res.status(400).json({ error: `平台 ${platform} 暂不支持` });
-    }
+    const result: { jobs: CrawledJob[]; error?: string; needLogin?: boolean } =
+      await crawlJobsByPlatform(platform, query, city, pages);
 
     if (result.needLogin) {
       return res.status(403).json({ error: result.error, needLogin: true });
@@ -243,21 +242,38 @@ router.get('/jobs/library-summary', (_req, res) => {
   });
 });
 
-// BOSS 登录（启动可见浏览器）
-router.post('/platforms/boss/login', async (_req, res) => {
+// 平台登录（启动可见浏览器，登录成功后保存 cookies）
+router.post('/platforms/:name/login', async (req, res) => {
+  const { name } = req.params;
+  const config = getPlatformConfig(name);
+  if (!config) return res.status(400).json({ error: `平台 ${name} 暂不支持` });
+
   try {
     await loginInteractive({
-      platform: 'boss',
-      loginUrl: 'https://login.zhipin.com/',
-      successUrlPattern: /zhipin\.com\/web\/geek\//,
+      platform: config.name,
+      loginUrl: config.loginUrl,
+      successUrlPattern: config.successUrlPattern,
       timeoutMs: 120000,
     });
 
-    db.prepare(
-      `UPDATE platform_accounts SET login_state = 'logged_in', status = 'active', last_login = datetime('now') WHERE user_id = ? AND platform_name = 'boss'`
-    ).run(DEMO_USER_ID);
+    const existing = db.prepare(
+      'SELECT id FROM platform_accounts WHERE user_id = ? AND platform_name = ?'
+    ).get(DEMO_USER_ID, config.name) as any;
 
-    res.json({ success: true, message: 'BOSS直聘登录成功' });
+    if (existing) {
+      db.prepare(
+        `UPDATE platform_accounts
+         SET login_state = 'logged_in', status = 'active', last_login = datetime('now')
+         WHERE id = ?`
+      ).run(existing.id);
+    } else {
+      db.prepare(
+        `INSERT INTO platform_accounts (id, user_id, platform_name, status, login_state, last_login)
+         VALUES (?, ?, ?, 'active', 'logged_in', datetime('now'))`
+      ).run(uuidv4(), DEMO_USER_ID, config.name);
+    }
+
+    res.json({ success: true, message: `${config.label} 登录成功` });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: `登录失败: ${msg}` });

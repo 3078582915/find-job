@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import http from 'http';
+import { getPlatformConfig } from '../platformRegistry';
 
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const DEBUG_PORT = 9222;
@@ -153,8 +154,17 @@ async function cdpRequest<T>(wsUrl: string, requests: { id: number; method: stri
   });
 }
 
-async function extractCookiesViaCDP(): Promise<any[]> {
-  const target = await getPreferredPageTarget('zhipin.com');
+function getPlatformHosts(platform: string): string[] {
+  return getPlatformConfig(platform)?.hosts || [];
+}
+
+function matchesAnyHost(value: string, hosts: string[]): boolean {
+  return hosts.some((host) => value.includes(host));
+}
+
+async function extractCookiesViaCDP(platform: string): Promise<any[]> {
+  const hosts = getPlatformHosts(platform);
+  const target = await getPreferredPageTarget(hosts);
   if (!target?.webSocketDebuggerUrl) {
     throw new Error('No CDP page target available');
   }
@@ -168,7 +178,7 @@ async function extractCookiesViaCDP(): Promise<any[]> {
   const cookies = msg?.result?.cookies || [];
   const platformCookies = cookies.filter((c: any) => {
     const domain = String(c.domain || '');
-    return domain.includes('zhipin.com') || domain.includes('bosszhipin.com') || domain.includes('kanzhun.com');
+    return hosts.length === 0 || matchesAnyHost(domain, hosts);
   });
 
   return (platformCookies.length > 0 ? platformCookies : cookies).map((c: any) => ({
@@ -183,16 +193,16 @@ async function extractCookiesViaCDP(): Promise<any[]> {
   }));
 }
 
-async function getPreferredPageTarget(preferHost?: string): Promise<ChromeTab | undefined> {
+async function getPreferredPageTarget(preferHosts?: string | string[]): Promise<ChromeTab | undefined> {
   const tabs = await getChromeTabs();
-  return tabs.find((t) => t.webSocketDebuggerUrl && preferHost && t.url.includes(preferHost))
-    || tabs.find((t) => t.webSocketDebuggerUrl && t.url.includes('zhipin.com'))
+  const hosts = Array.isArray(preferHosts) ? preferHosts : preferHosts ? [preferHosts] : [];
+  return tabs.find((t) => t.webSocketDebuggerUrl && hosts.length > 0 && matchesAnyHost(t.url, hosts))
     || tabs.find((t) => t.webSocketDebuggerUrl && t.url !== 'about:blank')
     || tabs.find((t) => t.webSocketDebuggerUrl);
 }
 
-export async function evaluateOnZhipinTab(expression: string, timeoutMs = 30000): Promise<any> {
-  const target = await getPreferredPageTarget('zhipin.com');
+export async function evaluateOnPlatformTab(platform: string, expression: string, timeoutMs = 30000): Promise<any> {
+  const target = await getPreferredPageTarget(getPlatformHosts(platform));
   if (!target?.webSocketDebuggerUrl) {
     throw new Error('No CDP page target available');
   }
@@ -213,8 +223,12 @@ export async function evaluateOnZhipinTab(expression: string, timeoutMs = 30000)
   return msg?.result?.result?.value;
 }
 
-export async function navigateZhipinTab(url: string, timeoutMs = 60000): Promise<void> {
-  const target = await getPreferredPageTarget('zhipin.com');
+export function evaluateOnZhipinTab(expression: string, timeoutMs = 30000): Promise<any> {
+  return evaluateOnPlatformTab('boss', expression, timeoutMs);
+}
+
+export async function navigatePlatformTab(platform: string, url: string, timeoutMs = 60000): Promise<void> {
+  const target = await getPreferredPageTarget(getPlatformHosts(platform));
   if (!target?.webSocketDebuggerUrl) {
     throw new Error('No CDP page target available');
   }
@@ -298,6 +312,10 @@ export async function navigateZhipinTab(url: string, timeoutMs = 60000): Promise
   });
 }
 
+export function navigateZhipinTab(url: string, timeoutMs = 60000): Promise<void> {
+  return navigatePlatformTab('boss', url, timeoutMs);
+}
+
 export function hasLoginState(platform: string): boolean {
   const storageStatePath = getStorageStatePath(platform);
   if (!fs.existsSync(storageStatePath)) return false;
@@ -305,11 +323,12 @@ export function hasLoginState(platform: string): boolean {
   try {
     const state = JSON.parse(fs.readFileSync(storageStatePath, 'utf-8'));
     if (!Array.isArray(state.cookies)) return false;
+    const hosts = getPlatformHosts(platform);
     return state.cookies.some((cookie: any) => {
       const domain = String(cookie.domain || '');
       const expires = Number(cookie.expires ?? -1);
       const notExpired = expires <= 0 || expires * 1000 > Date.now();
-      const domainMatches = platform !== 'boss' || domain.includes('zhipin.com') || domain.includes('bosszhipin.com');
+      const domainMatches = hosts.length === 0 || matchesAnyHost(domain, hosts);
       return domainMatches && notExpired;
     });
   } catch {
@@ -445,7 +464,7 @@ export async function loginInteractive({
 
   console.log('💾 正在提取登录态（WebSocket CDP）...');
   try {
-    const cookies = await extractCookiesViaCDP();
+    const cookies = await extractCookiesViaCDP(platform);
     const state = { cookies, origins: [] };
     fs.writeFileSync(storageStatePath, JSON.stringify(state, null, 2));
     console.log(`✅ 登录态已保存（${cookies.length} 个 cookies）`);
@@ -487,7 +506,7 @@ async function applyCookiesViaCDP(platform: string): Promise<void> {
     throw new Error(`${platform} 登录态文件没有可用 cookies，请重新扫码登录`);
   }
 
-  const target = await getPreferredPageTarget('zhipin.com');
+  const target = await getPreferredPageTarget(getPlatformHosts(platform));
   if (!target?.webSocketDebuggerUrl) {
     throw new Error('No CDP page target available');
   }
@@ -500,7 +519,7 @@ async function applyCookiesViaCDP(platform: string): Promise<void> {
   if (msg?.error) throw new Error(msg.error.message);
 }
 
-export async function ensureBrowserWithLogin(platform: string): Promise<void> {
+export async function ensureBrowserWithLogin(platform: string, startUrl = 'about:blank'): Promise<void> {
   const storageStatePath = getStorageStatePath(platform);
   if (!fs.existsSync(storageStatePath)) {
     throw new Error(`${platform} 未登录，请先扫码登录`);
@@ -510,7 +529,7 @@ export async function ensureBrowserWithLogin(platform: string): Promise<void> {
   fs.mkdirSync(userDataDir, { recursive: true });
 
   if (!(await isPortInUse(DEBUG_PORT))) {
-    const launched = await launchChromeWithDebug(userDataDir, 'about:blank');
+    const launched = await launchChromeWithDebug(userDataDir, startUrl);
     if (!launched) throw new Error('无法启动 Chrome');
   }
 

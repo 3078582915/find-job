@@ -20,7 +20,7 @@ interface AppState {
   platforms: Platform[];
   loadingPlatforms: boolean;
   loadPlatforms: () => Promise<void>;
-  doLoginBoss: () => Promise<void>;
+  doLoginPlatform: (name: string) => Promise<void>;
   doLogoutPlatform: (name: string) => Promise<void>;
 
   // 投递设置
@@ -107,8 +107,8 @@ export const useStore = create<AppState>((set, get) => ({
       set({ loadingPlatforms: false });
     }
   },
-  doLoginBoss: async () => {
-    await api.loginBoss();
+  doLoginPlatform: async (name) => {
+    await api.loginPlatform(name);
     const platforms = await api.fetchPlatforms();
     set({ platforms });
   },

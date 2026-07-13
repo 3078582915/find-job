@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../store';
-import { PLATFORM_LABELS, PLATFORM_COLORS, type Job } from '../types';
+import { PLATFORM_LABELS, PLATFORM_COLORS, PLATFORM_CONFIG, type Job } from '../types';
 import { cleanJobText, formatSalary, hasUnreadableChars } from '../utils/display';
 
 const CITIES = ['全国', '北京', '上海', '广州', '深圳', '杭州', '成都', '南京', '武汉', '西安'];
@@ -34,7 +34,7 @@ export default function JobSquare() {
     if (message.includes('访问限制') || message.includes('安全验证') || message.includes('空白页')) {
       return [
         message,
-        '处理建议：1. 暂停自动抓取；2. 在弹出的 Chrome 中手动打开 BOSS直聘并正常搜索一次；3. 如果出现验证，先手动完成；4. 过一段时间后只抓 1 页再试。',
+        '处理建议：1. 暂停自动抓取；2. 在弹出的 Chrome 中手动打开对应招聘平台并正常搜索一次；3. 如果出现验证，先手动完成；4. 过一段时间后只抓 1 页再试。',
       ].join('\n');
     }
     return message;
@@ -70,9 +70,9 @@ export default function JobSquare() {
       return;
     }
 
-    const bossLoggedIn = platforms.find(p => p.name === 'boss')?.bound;
-    if (crawlPlatform === 'boss' && !bossLoggedIn) {
-      setCrawlMessage({ type: 'error', text: '请先在"平台管理"页面登录 BOSS直聘' });
+    const selectedPlatform = platforms.find(p => p.name === crawlPlatform);
+    if (selectedPlatform && !selectedPlatform.bound) {
+      setCrawlMessage({ type: 'error', text: `请先在"平台管理"页面登录 ${selectedPlatform.label}` });
       return;
     }
 
@@ -162,7 +162,9 @@ export default function JobSquare() {
               onChange={(e) => setCrawlPlatform(e.target.value)}
               className="w-full px-3 py-2.5 border border-[#E1E8ED] rounded-lg bg-[#F5F7FA] text-sm cursor-pointer focus:outline-none focus:border-accent"
             >
-              <option value="boss">BOSS直聘</option>
+              {PLATFORM_CONFIG.map((platform) => (
+                <option key={platform.name} value={platform.name}>{platform.label}</option>
+              ))}
             </select>
           </div>
           <div className="lg:col-span-2">

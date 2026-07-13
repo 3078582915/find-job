@@ -1,18 +1,11 @@
 import { Router } from 'express';
 import db from '../database';
 import { v4 as uuidv4 } from '../utils';
-import { hasLoginState, getLoginStatePath, clearLoginSuccess } from '../crawlers/browser';
-import fs from 'fs';
+import { hasLoginState, clearLoginSuccess } from '../crawlers/browser';
+import { PLATFORM_CONFIG } from '../platformRegistry';
 
 const router = Router();
 const DEMO_USER_ID = 'u001';
-
-const PLATFORM_CONFIG = [
-  { name: 'boss', label: 'BOSS直聘', logo: 'B', color: '#00D4AA', loginType: 'qrcode' },
-  { name: 'zhilian', label: '智联招聘', logo: '智', color: '#FF6B35', loginType: 'password' },
-  { name: '51job', label: '前程无忧', logo: '51', color: '#1E3A5F', loginType: 'password' },
-  { name: 'lagou', label: '拉勾网', logo: '拉', color: '#00BFFF', loginType: 'password' },
-];
 
 router.get('/platforms', (_req, res) => {
   const accounts = db.prepare(
@@ -22,8 +15,9 @@ router.get('/platforms', (_req, res) => {
   const platforms = PLATFORM_CONFIG.map(config => {
     const account = accounts.find(a => a.platform_name === config.name);
     const loggedIn = hasLoginState(config.name);
+    const { loginUrl: _loginUrl, successUrlPattern: _successUrlPattern, hosts: _hosts, ...publicConfig } = config;
     return {
-      ...config,
+      ...publicConfig,
       bound: loggedIn,
       status: loggedIn ? 'active' : 'inactive',
       loginState: loggedIn ? 'logged_in' : 'unlogged',
@@ -40,6 +34,9 @@ router.get('/platforms', (_req, res) => {
 router.post('/platforms/:name/bind', (req, res) => {
   const { name } = req.params;
   const { account, password } = req.body;
+  const config = PLATFORM_CONFIG.find(p => p.name === name);
+
+  if (!config) return res.status(400).json({ error: `平台 ${name} 暂不支持` });
 
   if (!account || !password) {
     return res.status(400).json({ error: '请填写账号和密码' });
@@ -59,8 +56,8 @@ router.post('/platforms/:name/bind', (req, res) => {
     ).run(uuidv4(), DEMO_USER_ID, name, account, JSON.stringify({ password: '***' }), 'active');
   }
 
-  const config = PLATFORM_CONFIG.find(p => p.name === name);
-  res.json({ success: true, platform: { ...config, bound: true, status: 'active' } });
+  const { loginUrl: _loginUrl, successUrlPattern: _successUrlPattern, hosts: _hosts, ...publicConfig } = config;
+  res.json({ success: true, platform: { ...publicConfig, bound: true, status: 'active' } });
 });
 
 // 登出平台（清除登录态）

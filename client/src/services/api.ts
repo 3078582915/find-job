@@ -33,8 +33,8 @@ export const bindPlatform = (name: string, data: { account: string; password: st
 export const logoutPlatform = (name: string) =>
   http.delete(`/platforms/${name}/logout`).then(r => r.data);
 
-export const loginBoss = () =>
-  http.post('/platforms/boss/login', {}, { timeout: 180000 }).then(r => r.data);
+export const loginPlatform = (name: string) =>
+  http.post(`/platforms/${name}/login`, {}, { timeout: 180000 }).then(r => r.data);
 
 // ========== 投递设置 ==========
 export const fetchDeliverySettings = () =>

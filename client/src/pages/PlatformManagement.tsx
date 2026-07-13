@@ -3,23 +3,24 @@ import { useStore } from '../store';
 import { PLATFORM_LABELS } from '../types';
 
 export default function PlatformManagement() {
-  const { platforms, loadingPlatforms, loadPlatforms, doLoginBoss, doLogoutPlatform } = useStore();
-  const [loginLoading, setLoginLoading] = useState(false);
+  const { platforms, loadingPlatforms, loadPlatforms, doLoginPlatform, doLogoutPlatform } = useStore();
+  const [loginLoading, setLoginLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   useEffect(() => { loadPlatforms(); }, []);
 
-  const handleLoginBoss = async () => {
-    setLoginLoading(true);
-    setMessage({ type: 'info', text: '正在打开浏览器，请在弹出的浏览器窗口中扫码登录 BOSS直聘...' });
+  const handleLoginPlatform = async (name: string) => {
+    const label = PLATFORM_LABELS[name] || name;
+    setLoginLoading(name);
+    setMessage({ type: 'info', text: `正在打开浏览器，请在弹出的 Chrome 窗口中完成 ${label} 登录...` });
     try {
-      await doLoginBoss();
-      setMessage({ type: 'success', text: 'BOSS直聘登录成功！现在可以去职位广场抓取职位了。' });
+      await doLoginPlatform(name);
+      setMessage({ type: 'success', text: `${label} 登录成功！现在可以去职位广场抓取职位了。` });
     } catch (err: any) {
       const msg = err?.response?.data?.error || err.message || '未知错误';
       setMessage({ type: 'error', text: `登录失败：${msg}` });
     } finally {
-      setLoginLoading(false);
+      setLoginLoading(null);
     }
   };
 
@@ -43,9 +44,9 @@ export default function PlatformManagement() {
           <div>
             <p className="font-medium mb-1">使用说明</p>
             <ol className="list-decimal list-inside text-[#7F8C8D] space-y-0.5 text-xs">
-              <li>点击"扫码登录"后，会弹出浏览器窗口</li>
-              <li>在浏览器中用 BOSS直聘 App 扫码完成登录</li>
-              <li>登录成功后关闭浏览器，系统自动保存登录状态</li>
+              <li>点击"浏览器登录"后，会弹出 Chrome 浏览器窗口</li>
+              <li>在浏览器里按平台要求扫码、验证码或账号密码完成登录</li>
+              <li>登录成功后系统会保存该平台 cookies 登录态</li>
               <li>之后在"职位广场"抓取职位时自动复用登录状态</li>
             </ol>
           </div>
@@ -85,7 +86,7 @@ export default function PlatformManagement() {
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold">{p.label}</h3>
                   <p className="text-xs text-[#7F8C8D]">
-                    {p.loginType === 'qrcode' ? '扫码登录' : '账号密码登录'}
+                    {p.loginType === 'qrcode' ? '扫码/浏览器登录' : '浏览器登录'}
                   </p>
                 </div>
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -104,41 +105,33 @@ export default function PlatformManagement() {
               )}
 
               <div className="flex gap-2">
-                {p.name === 'boss' ? (
-                  p.bound ? (
-                    <>
-                      <button
-                        onClick={() => handleLoginBoss()}
-                        disabled={loginLoading}
-                        className="px-4 py-2 text-sm rounded-lg border border-[#E1E8ED] hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
-                      >
-                        重新登录
-                      </button>
-                      <button
-                        onClick={() => handleLogout(p.name)}
-                        className="px-4 py-2 text-sm rounded-lg border border-[#E1E8ED] text-[#E74C3C] hover:bg-[#E74C3C]/10 transition-colors"
-                      >
-                        退出登录
-                      </button>
-                    </>
-                  ) : (
+                {p.bound ? (
+                  <>
                     <button
-                      onClick={handleLoginBoss}
-                      disabled={loginLoading}
-                      className="px-4 py-2 text-sm rounded-lg bg-accent text-white hover:bg-[#FF8C5A] transition-colors disabled:opacity-50 flex items-center gap-2"
+                      onClick={() => handleLoginPlatform(p.name)}
+                      disabled={Boolean(loginLoading)}
+                      className="px-4 py-2 text-sm rounded-lg border border-[#E1E8ED] hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
                     >
-                      {loginLoading && (
-                        <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                      )}
-                      {loginLoading ? '等待登录...' : '扫码登录'}
+                      {loginLoading === p.name ? '等待登录...' : '重新登录'}
                     </button>
-                  )
+                    <button
+                      onClick={() => handleLogout(p.name)}
+                      disabled={Boolean(loginLoading)}
+                      className="px-4 py-2 text-sm rounded-lg border border-[#E1E8ED] text-[#E74C3C] hover:bg-[#E74C3C]/10 transition-colors disabled:opacity-50"
+                    >
+                      退出登录
+                    </button>
+                  </>
                 ) : (
                   <button
-                    disabled
-                    className="px-4 py-2 text-sm rounded-lg border border-[#E1E8ED] text-[#7F8C8D] cursor-not-allowed"
+                    onClick={() => handleLoginPlatform(p.name)}
+                    disabled={Boolean(loginLoading)}
+                    className="px-4 py-2 text-sm rounded-lg bg-accent text-white hover:bg-[#FF8C5A] transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
-                    即将支持
+                    {loginLoading === p.name && (
+                      <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                    )}
+                    {loginLoading === p.name ? '等待登录...' : '浏览器登录'}
                   </button>
                 )}
               </div>
