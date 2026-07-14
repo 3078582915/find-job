@@ -152,3 +152,86 @@ export const PLATFORM_COLORS: Record<string, string> = {
   shixiseng: '#FF7A45',
   lagou: '#00BFFF',
 };
+
+// ========== Agent ==========
+export interface AgentStatus {
+  configured: boolean;
+  model: string;
+  baseUrl: string | null;
+  provider?: 'deepseek' | 'openai' | 'custom';
+  framework: string;
+  capabilities: string[];
+}
+
+export interface AgentModelConfig {
+  configured: boolean;
+  apiKeyConfigured: boolean;
+  keyHint: string | null;
+  keySource: 'ui' | 'environment' | 'none';
+  model: string;
+  baseUrl: string | null;
+  provider: 'deepseek' | 'openai' | 'custom';
+}
+
+export interface AgentConnectionTest {
+  success: boolean;
+  latencyMs: number;
+  response: string;
+}
+
+export interface AgentConversation {
+  id: string;
+  user_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  last_message?: string | null;
+  message_count?: number;
+}
+
+export interface AgentJobCard {
+  id: string;
+  platform: string;
+  title: string;
+  company: string;
+  salary: string;
+  location: string;
+  experience: string;
+  education: string;
+  companySize: string;
+  industry: string;
+  url: string;
+  clicked: boolean;
+  crawledAt: string;
+}
+
+export interface AgentPendingAction {
+  id: string;
+  actionType: string;
+  title: string;
+  description: string;
+  payload: Record<string, unknown>;
+  expiresAt: string;
+  status?: 'pending' | 'processing' | 'completed' | 'cancelled' | 'failed';
+}
+
+export interface AgentArtifact {
+  kind: 'job_list' | 'statistics' | 'platform_status' | 'preferences' | 'confirmation' | 'crawl_result' | string;
+  jobs?: AgentJobCard[];
+  conditions?: string;
+  statistics?: Record<string, any>;
+  platforms?: Array<{ name: string; label: string; loggedIn: boolean; requiresLoginForCrawl: boolean }>;
+  preferences?: Record<string, unknown>;
+  action?: AgentPendingAction;
+  result?: Record<string, any>;
+  actionId?: string;
+}
+
+export interface AgentMessage {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  metadata: { artifacts?: AgentArtifact[] };
+  created_at: string;
+}

@@ -6,13 +6,15 @@ import ResumeManagement from './pages/ResumeManagement';
 import PlatformManagement from './pages/PlatformManagement';
 import DeliverySettings from './pages/DeliverySettings';
 import DeliveryHistory from './pages/DeliveryHistory';
+import AgentWorkspace from './pages/AgentWorkspace';
 
 export default function App() {
   return (
     <BrowserRouter>
       <Layout>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<AgentWorkspace />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/jobs" element={<JobSquare />} />
           <Route path="/resume" element={<ResumeManagement />} />
           <Route path="/platforms" element={<PlatformManagement />} />

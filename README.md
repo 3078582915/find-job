@@ -2,7 +2,16 @@
 
 > ⚠️ **风险提示：本项目仅供学习研究使用，请勿用于生产环境或高频、大规模自动化操作。招聘平台（如 BOSS 直聘）对自动化访问有严格的反爬与风控策略，使用本项目存在账号被封禁、登录态失效、IP 被限制等风险。强烈建议使用小号/测试账号进行操作，切勿使用重要求职账号。**
 
-一个本地运行的招聘职位聚合与投递辅助工具。当前重点支持 BOSS 直聘登录态复用、职位抓取、职位入库、职位筛选、点击记录、简历管理和投递策略配置，方便多个平台信息汇总然后自行点击链接投递。
+一个本地运行的求职 Agent。项目使用 **LangChain + LangGraph** 理解自然语言，通过受控工具查询 SQLite 职位库、统计数据、检查平台状态、保存求职偏好，并在用户确认后调用现有抓取服务。最终投递仍由用户在招聘平台官网完成。
+
+## 功能亮点
+
+- 🤖 **自然语言交互**：用聊天方式找职位，例如“找北京 15K 以上、经验不限的 Agent 岗位”。
+- 🔍 **多平台职位聚合**：支持 BOSS 直聘、智联招聘、前程无忧、实习僧等平台登录与职位抓取。
+- 💾 **本地数据持久化**：职位、点击记录、会话、求职偏好全部保存在本地 SQLite。
+- 🛡️ **人工确认机制**：抓取属于有副作用操作，Agent 只创建确认卡片，用户确认后才执行。
+- 🔐 **安全存储 API Key**：模型配置保存在本地 `server/data/agent-model.json`，不会提交到 Git。
+- 📊 **职位库统计**：实时查看总职位数、薪资缺失、公司缺失、已查看/未查看等统计。
 
 ## 目录
 
@@ -11,6 +20,7 @@
 - [目录结构](#目录结构)
 - [环境要求](#环境要求)
 - [安装依赖](#安装依赖)
+- [配置 Agent 模型](#配置-agent-模型)
 - [启动开发环境](#启动开发环境)
 - [构建项目](#构建项目)
 - [常用脚本](#常用脚本)
@@ -27,21 +37,25 @@
 
 ## 功能概览
 
-- BOSS 直聘扫码登录，并在本地保存登录态。
-- 按关键词、城市、页数抓取职位。
+- 使用自然语言筛选职位。
+- LangGraph 驱动模型与工具循环，并保存多轮会话。
+- 聊天结果直接展示职位、公司、薪资、城市和官方链接卡片。
+- 查询职位库统计、缺失薪资、缺失公司和平台登录状态。
+- 保存关键词、城市、最低薪资和平台等求职偏好。
+- 支持 BOSS 直聘、智联招聘、前程无忧和实习僧登录/抓取适配。
 - 自动保存职位到本地 SQLite 数据库。
 - 支持按平台、关键词、城市、薪资状态、公司名状态、查看状态筛选职位库。
 - 记录点击过的职位，区分已查看和未查看。
 - 解码 BOSS 直聘薪资中的私有字体数字，例如 `-K·薪` 会显示为 `11-20K·14薪`。
-- 管理简历版本和默认简历。
-- 配置投递关键词、期望薪资、地点、公司规模、经验、每日上限和打招呼语。
-- 提供统计页面和投递记录页面。
+- 提供数据概览和查看记录页面。
 
 ## 技术栈
 
-- 前端：React 18、Vite、TypeScript、Tailwind CSS、Zustand、Recharts
-- 后端：Express、TypeScript、better-sqlite3
-- 浏览器控制：Chrome CDP、Playwright
+- 前端：React 18、Vite、TypeScript、Tailwind CSS、Zustand、Recharts、Lucide
+- Agent：LangChain 1.x、LangGraph 1.x、结构化工具调用、SSE 流式输出
+- 模型：OpenAI，或支持工具调用的 OpenAI-compatible API
+- 后端：Express、TypeScript、Zod、better-sqlite3
+- 浏览器控制：Chrome CDP
 - 数据库：SQLite
 
 ## 目录结构
@@ -49,23 +63,25 @@
 ```text
 .
 ├── client/                 # React 前端
-│   ├── src/pages/          # 页面：职位广场、平台管理、简历管理等
+│   ├── src/pages/          # 页面：职位广场、平台管理、简历管理、Agent 聊天等
 │   ├── src/services/       # API 请求封装
 │   ├── src/store/          # Zustand 状态管理
 │   └── src/utils/          # 前端显示清洗与薪资解码
 ├── server/                 # Express 后端
+│   ├── src/agent/          # LangGraph Agent、工具、提示词、会话仓储
 │   ├── src/crawlers/       # Chrome/CDP 与 BOSS 抓取逻辑
 │   ├── src/routes/         # API 路由
+│   ├── src/services/       # REST 与 Agent 共用的职位业务服务
 │   ├── src/database.ts     # SQLite 表结构与种子数据
 │   └── src/salaryCodec.ts  # BOSS 薪资私有字体数字解码
-├── server/data/            # 本地数据库、Chrome profile、登录态，已被 .gitignore 忽略
+├── server/data/            # 本地数据库、Chrome profile、登录态、模型配置，已被 .gitignore 忽略
 ├── package.json            # 根目录脚本
 └── README.md
 ```
 
 ## 环境要求
 
-- Node.js 18+，建议 20+
+- Node.js 20+
 - npm
 - Windows + Chrome 浏览器
 - PowerShell 或 CMD
@@ -84,6 +100,41 @@ npm.cmd run install:all
 ```powershell
 npm run install:all
 ```
+
+## 配置 Agent 模型
+
+推荐直接打开 `http://localhost:5173/`，点击 Agent 页右上角的“模型设置”按钮。界面支持：
+
+- DeepSeek、OpenAI 和自定义 OpenAI-compatible 服务
+- 填写 API Key、模型名称和服务地址
+- 连接测试、密钥掩码显示和清除密钥
+- 保存后立即生效，无需重启服务
+
+界面保存的配置位于本机 `server/data/agent-model.json`。该目录已被 Git 忽略，后端接口不会向浏览器返回 Key 明文。
+
+也可以继续通过环境变量配置。复制配置示例：
+
+```powershell
+Copy-Item server/.env.example server/.env
+```
+
+使用 OpenAI：
+
+```dotenv
+AGENT_API_KEY=你的密钥
+AGENT_MODEL=gpt-4.1-mini
+AGENT_BASE_URL=
+```
+
+使用支持工具调用的 OpenAI-compatible 服务时，同时填写对应地址：
+
+```dotenv
+AGENT_API_KEY=你的密钥
+AGENT_MODEL=服务商提供的模型名称
+AGENT_BASE_URL=https://example.com/v1
+```
+
+界面配置优先于环境变量。密钥只由后端读取；`server/.env`、`server/data`、数据库、Cookie 和 Chrome profile 均已被 `.gitignore` 忽略。
 
 ## 启动开发环境
 
@@ -131,8 +182,8 @@ npm.cmd run install:all    # 安装根目录、前端、后端依赖
 2. 打开前端：http://localhost:5173
 3. 进入“平台管理”。
 4. 点击 BOSS 直聘扫码登录。
-5. 登录成功后进入“职位广场”。
-6. 输入关键词、城市和页数，点击“开始抓取”。
+5. 登录成功后进入“职位广场”或“求职 Agent”。
+6. 用自然语言描述需求，或在职位广场输入关键词、城市和页数抓取。
 7. 抓取结果会自动写入本地数据库。
 8. 使用职位库筛选项查看、筛选、点击跳转投递。
 
@@ -151,8 +202,9 @@ server/data/app.db
 - `platform_accounts`：平台账号状态。
 - `resumes`：简历数据。
 - `delivery_settings`：投递设置。
+- `agent_conversations` / `agent_messages`：Agent 会话与消息。
 
-`server/data/` 包含数据库、Chrome profile 和登录态信息，已被 `.gitignore` 忽略，不应提交到 Git 仓库。
+`server/data/` 包含数据库、Chrome profile、登录态信息和模型配置，已被 `.gitignore` 忽略，不应提交到 Git 仓库。
 
 ## 职位库筛选
 
@@ -204,6 +256,15 @@ GET /api/jobs/library-summary
 GET    /api/health
 GET    /api/statistics
 
+GET    /api/agent/status
+GET    /api/agent/conversations
+POST   /api/agent/conversations
+GET    /api/agent/conversations/:id/messages
+DELETE /api/agent/conversations/:id
+POST   /api/agent/chat                       # SSE
+POST   /api/agent/actions/:id/confirm
+POST   /api/agent/actions/:id/cancel
+
 GET    /api/platforms
 POST   /api/platforms/boss/login
 DELETE /api/platforms/:name/logout
@@ -249,7 +310,37 @@ D:\VibeCoding\多平台自动投简历\server\data\app.db
 - VS Code SQLite 插件
 - JetBrains Database 工具
 
+## Git 初始化建议
 
+如果这是一个新项目仓库：
+
+```powershell
+cd "D:\VibeCoding\多平台自动投简历"
+git init
+git branch -M main
+git add .
+git commit -m "Initial project snapshot"
+```
+
+如果要推送到远程仓库：
+
+```powershell
+git remote add origin <你的仓库地址>
+git push -u origin main
+```
+
+已忽略的重要目录：
+
+```text
+node_modules/
+client/node_modules/
+server/node_modules/
+client/dist/
+server/dist/
+server/data/
+server/.env
+*.log
+```
 
 ## 常见问题
 
@@ -298,19 +389,21 @@ server/data/chrome-profile-boss/
 
 ## 当前限制
 
-- 当前重点支持 BOSS 直聘，其他平台仍是预留结构。
+- Agent 必须连接支持结构化工具调用的聊天模型。
+- 当前使用内存 checkpointer 保存运行期 LangGraph 状态，同时将用户/助手消息持久化到 SQLite；服务重启后会从消息表恢复上下文。
 - 自动抓取稳定性受目标平台安全策略影响。
-- 自动投递动作尚未做成完整闭环，目前主要是职位聚合、筛选和点击跳转。
+- Agent 不会破解验证码，也不会自动投递或自动联系招聘方。
+- 抓取动作必须由用户在聊天界面确认，目前单次最多 3 页。
 - 部分职位信息可能只在详情页展示，列表页无法 100% 获取。
 
 ## 后续计划
 
 - 增加详情页补抓，用于补全缺失薪资、地点和公司信息。
-- 增加职位收藏、隐藏、不感兴趣标记。
+- 增加 Agent 候选清单、隐藏和不感兴趣标记。
 - 增加薪资区间结构化字段，支持按数值排序和筛选。
 - 增加导出 CSV / Excel。
 - 持续维护智联招聘、前程无忧、实习僧等平台适配。
-- 增加更清晰的抓取日志和失败原因统计。
+- 增加 LangSmith 可观测性、工具耗时和失败原因统计。
 
 ## 免责声明
 

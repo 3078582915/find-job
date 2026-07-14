@@ -1,11 +1,21 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import {
+  BarChart3,
+  Bot,
+  BriefcaseBusiness,
+  History,
+  Link2,
+  Menu,
+  X,
+} from 'lucide-react';
 
 const navItems = [
-  { path: '/', label: '仪表盘', icon: '📊' },
-  { path: '/jobs', label: '职位广场', icon: '🔍' },
-  { path: '/platforms', label: '平台管理', icon: '🔗' },
-  { path: '/history', label: '查看记录', icon: '📋' },
+  { path: '/', label: '求职 Agent', icon: Bot },
+  { path: '/jobs', label: '职位广场', icon: BriefcaseBusiness },
+  { path: '/platforms', label: '平台管理', icon: Link2 },
+  { path: '/history', label: '查看记录', icon: History },
+  { path: '/dashboard', label: '数据概览', icon: BarChart3 },
 ];
 
 export default function Sidebar() {
@@ -13,54 +23,60 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* 移动端菜单按钮 */}
       <button
-        className="fixed top-5 left-5 w-10 h-10 bg-primary rounded-lg z-[150] items-center justify-center text-white text-xl lg:hidden flex"
-        onClick={() => setOpen(!open)}
+        type="button"
+        className="fixed left-4 top-4 z-[150] flex h-10 w-10 items-center justify-center rounded-md bg-primary text-white lg:hidden"
+        onClick={() => setOpen((value) => !value)}
+        title={open ? '关闭导航' : '打开导航'}
       >
-        ☰
+        {open ? <X size={20} /> : <Menu size={20} />}
       </button>
 
       <aside
-        className={`w-[260px] bg-gradient-to-b from-primary to-[#152A45] text-white py-6 fixed h-screen left-0 top-0 z-[100] transition-transform duration-300 lg:translate-x-0 ${
+        className={`fixed left-0 top-0 z-[100] h-screen w-[240px] border-r border-white/10 bg-[#193653] text-white transition-transform duration-200 lg:translate-x-0 ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="px-6 pb-8 border-b border-white/10">
-          <div className="flex items-center gap-3 text-xl font-semibold">
-            <div className="w-10 h-10 bg-accent rounded-[10px] flex items-center justify-center text-2xl">
-              📄
-            </div>
-            <span>简历投递助手</span>
+        <div className="flex h-[76px] items-center gap-3 border-b border-white/10 px-6">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent text-white">
+            <Bot size={21} />
+          </div>
+          <div>
+            <div className="text-base font-semibold">求职 Agent</div>
+            <div className="text-xs text-white/55">LangGraph 工作台</div>
           </div>
         </div>
 
-        <nav className="py-6">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.path === '/'}
-              onClick={() => setOpen(false)}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-6 py-3 cursor-pointer transition-all duration-300 border-l-[3px] ${
-                  isActive
-                    ? 'bg-white/15 border-l-accent'
-                    : 'border-l-transparent hover:bg-white/10'
-                }`
-              }
-            >
-              <span className="w-5 h-5 flex items-center justify-center">{item.icon}</span>
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+        <nav className="px-3 py-5">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                end={item.path === '/'}
+                onClick={() => setOpen(false)}
+                className={({ isActive }) =>
+                  `mb-1 flex h-11 items-center gap-3 rounded-md px-3 text-sm transition-colors ${
+                    isActive
+                      ? 'bg-white/14 text-white'
+                      : 'text-white/70 hover:bg-white/8 hover:text-white'
+                  }`
+                }
+              >
+                <Icon size={18} />
+                <span>{item.label}</span>
+              </NavLink>
+            );
+          })}
         </nav>
       </aside>
 
-      {/* 移动端遮罩 */}
       {open && (
-        <div
-          className="fixed inset-0 bg-black/50 z-[90] lg:hidden"
+        <button
+          type="button"
+          aria-label="关闭导航"
+          className="fixed inset-0 z-[90] bg-black/40 lg:hidden"
           onClick={() => setOpen(false)}
         />
       )}

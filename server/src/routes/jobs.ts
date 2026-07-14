@@ -1,11 +1,10 @@
 import { Router } from 'express';
-import crypto from 'crypto';
 import db from '../database';
 import { v4 as uuidv4 } from '../utils';
-import { crawlJobsByPlatform, type CrawledJob } from '../crawlers';
 import { loginInteractive, hasLoginState } from '../crawlers/browser';
 import { decodeBossPrivateText } from '../salaryCodec';
 import { getPlatformConfig, isSupportedPlatform } from '../platformRegistry';
+import { crawlAndStoreJobs } from '../services/jobService';
 
 const router = Router();
 const DEMO_USER_ID = 'u001';
@@ -34,61 +33,11 @@ router.post('/jobs/crawl', async (req, res) => {
   }
 
   try {
-    const result: { jobs: CrawledJob[]; error?: string; needLogin?: boolean } =
-      await crawlJobsByPlatform(platform, query, city, pages);
-
+    const result = await crawlAndStoreJobs({ platform, query, city, pages });
     if (result.needLogin) {
       return res.status(403).json({ error: result.error, needLogin: true });
     }
-
-    // 去重写入数据库；重复职位也刷新字段，便于修复历史解析不完整的数据。
-    let inserted = 0;
-    let duplicated = 0;
-    const findExistingJob = db.prepare('SELECT id FROM jobs WHERE job_hash = ?');
-    const insertJob = db.prepare(`
-      INSERT INTO jobs (id, platform, job_id, title, company_name, salary, location, experience, education, company_size, company_industry, job_url, tags, job_hash, crawled_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-      ON CONFLICT(job_hash) DO UPDATE SET
-        title = COALESCE(NULLIF(excluded.title, ''), jobs.title),
-        company_name = COALESCE(NULLIF(excluded.company_name, ''), jobs.company_name),
-        salary = COALESCE(NULLIF(excluded.salary, ''), jobs.salary),
-        location = COALESCE(NULLIF(excluded.location, ''), jobs.location),
-        experience = COALESCE(NULLIF(excluded.experience, ''), jobs.experience),
-        education = COALESCE(NULLIF(excluded.education, ''), jobs.education),
-        company_size = COALESCE(NULLIF(excluded.company_size, ''), jobs.company_size),
-        company_industry = COALESCE(NULLIF(excluded.company_industry, ''), jobs.company_industry),
-        job_url = COALESCE(NULLIF(excluded.job_url, ''), jobs.job_url),
-        tags = COALESCE(NULLIF(excluded.tags, '[]'), jobs.tags),
-        crawled_at = excluded.crawled_at
-    `);
-
-    for (const job of result.jobs) {
-      const id = uuidv4();
-      const hash = crypto.createHash('md5').update(`${job.platform}:${job.job_id}`).digest('hex');
-      const existed = Boolean(findExistingJob.get(hash));
-      const info = insertJob.run(
-        id, job.platform, job.job_id, job.title, job.company_name,
-        job.salary, job.location, job.experience, job.education,
-        job.company_size, job.company_industry, job.job_url,
-        JSON.stringify(job.tags), hash
-      );
-      if (info.changes > 0 && !existed) {
-        inserted++;
-      } else {
-        duplicated++;
-      }
-    }
-
-    res.json({
-      success: true,
-      platform,
-      query,
-      city,
-      total: result.jobs.length,
-      inserted,
-      duplicated,
-      error: result.error,
-    });
+    res.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: `抓取异常: ${msg}` });

@@ -4,9 +4,18 @@
 
 body {
   margin: 0;
+  background: #f3f5f7;
+  color: #17324d;
   font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+textarea,
+input,
+select {
+  font: inherit;
 }
 
 /* 自定义滚动条 */

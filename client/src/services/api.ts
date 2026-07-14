@@ -2,6 +2,8 @@ import axios from 'axios';
 import type {
   Statistics, Resume, DeliverySetting, DeliveryRecordsResponse, Platform,
   JobsResponse, CrawlResult,
+  AgentStatus, AgentConversation, AgentMessage, AgentArtifact,
+  AgentModelConfig, AgentConnectionTest,
 } from '../types';
 
 const http = axios.create({ baseURL: '/api' });
@@ -66,3 +68,97 @@ export const fetchJobs = (params: {
 
 export const clickJob = (id: string) =>
   http.post<{ success: boolean; url: string; alreadyClicked: boolean }>(`/jobs/${id}/click`).then(r => r.data);
+
+// ========== Agent ==========
+export const fetchAgentStatus = () =>
+  http.get<AgentStatus>('/agent/status').then(r => r.data);
+
+export const fetchAgentConfig = () =>
+  http.get<AgentModelConfig>('/agent/config').then(r => r.data);
+
+export const updateAgentConfig = (data: { apiKey?: string; model: string; baseUrl?: string }) =>
+  http.put<AgentModelConfig>('/agent/config', data).then(r => r.data);
+
+export const clearAgentApiKey = () =>
+  http.delete<AgentModelConfig>('/agent/config/key').then(r => r.data);
+
+export const testAgentConfig = () =>
+  http.post<AgentConnectionTest>('/agent/config/test', {}, { timeout: 70000 }).then(r => r.data);
+
+export const fetchAgentConversations = () =>
+  http.get<AgentConversation[]>('/agent/conversations').then(r => r.data);
+
+export const createAgentConversation = (title?: string) =>
+  http.post<AgentConversation>('/agent/conversations', { title }).then(r => r.data);
+
+export const deleteAgentConversation = (id: string) =>
+  http.delete(`/agent/conversations/${id}`).then(r => r.data);
+
+export const fetchAgentMessages = (conversationId: string) =>
+  http.get<AgentMessage[]>(`/agent/conversations/${conversationId}/messages`).then(r => r.data);
+
+export const confirmAgentAction = (id: string) =>
+  http.post<{ success: boolean; action: { status: string }; message: AgentMessage }>(`/agent/actions/${id}/confirm`, {}, { timeout: 180000 }).then(r => r.data);
+
+export const cancelAgentAction = (id: string) =>
+  http.post<{ success: boolean; action: { status: string } }>(`/agent/actions/${id}/cancel`).then(r => r.data);
+
+export interface AgentStreamHandlers {
+  onConversation?: (conversation: AgentConversation) => void;
+  onToken?: (token: string) => void;
+  onStatus?: (status: { phase: string; label: string }) => void;
+  onToolStart?: (toolName: string) => void;
+  onToolEnd?: (toolName: string) => void;
+  onArtifact?: (artifact: AgentArtifact) => void;
+  onDone?: (message: AgentMessage) => void;
+}
+
+export async function streamAgentChat(
+  data: { conversationId?: string; message: string },
+  handlers: AgentStreamHandlers,
+  signal?: AbortSignal,
+) {
+  const response = await fetch('/api/agent/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || `请求失败 (${response.status})`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const dispatch = (block: string) => {
+    const lines = block.split(/\r?\n/);
+    const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() || 'message';
+    const dataText = lines
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trim())
+      .join('\n');
+    if (!dataText) return;
+    const payload = JSON.parse(dataText);
+    if (event === 'conversation') handlers.onConversation?.(payload.conversation);
+    else if (event === 'token') handlers.onToken?.(payload.token);
+    else if (event === 'status') handlers.onStatus?.(payload);
+    else if (event === 'tool_start') handlers.onToolStart?.(payload.toolName);
+    else if (event === 'tool_end') handlers.onToolEnd?.(payload.toolName);
+    else if (event === 'artifact') handlers.onArtifact?.(payload);
+    else if (event === 'done') handlers.onDone?.(payload.message);
+    else if (event === 'error') throw new Error(payload.message || 'Agent 运行失败');
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() || '';
+    for (const block of blocks) dispatch(block);
+    if (done) break;
+  }
+  if (buffer.trim()) dispatch(buffer);
+}
