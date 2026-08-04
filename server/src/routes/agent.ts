@@ -1,8 +1,10 @@
 import { Router, type Response } from 'express';
 import {
   AgentConfigurationError,
+  AgentModelConnectionError,
   clearAgentThread,
   getAgentStatus,
+  normalizeAgentError,
   resetAgentModel,
   runAgentConversation,
   testAgentModelConnection,
@@ -17,15 +19,18 @@ import {
   appendMessage,
   claimPendingAction,
   createConversation,
+  createPendingAction,
   deleteConversation,
   finishPendingAction,
   getConversation,
   getPendingAction,
+  listPendingActions,
   listConversations,
   listMessages,
   logAgentAction,
   updateConversationTitleFromMessage,
 } from '../agent/repository';
+import { PLATFORM_CONFIG, isSupportedPlatform } from '../platformRegistry';
 import {
   crawlAndStoreJobs,
   getJobsByPlatformJobIds,
@@ -57,6 +62,134 @@ function hydrateActionStates(message: any) {
   return { ...message, metadata: { ...message.metadata, artifacts } };
 }
 
+function confirmationArtifactFromPendingAction(action: any) {
+  if (action.action_type !== 'crawl_jobs') return null;
+  const payload = action.payload || {};
+  const platform = PLATFORM_CONFIG.find((item) => item.name === payload.platform);
+  const label = platform?.label || payload.platform || '招聘平台';
+  return {
+    kind: 'confirmation',
+    action: {
+      id: action.id,
+      actionType: action.action_type,
+      title: `抓取 ${label} 职位`,
+      description: `${payload.query || ''} · ${payload.city || '全国'} · ${payload.pages || 1} 页`,
+      payload,
+      expiresAt: action.expires_at,
+      status: action.status,
+    },
+  };
+}
+
+function attachMissingPendingConfirmations(messages: any[], conversationId: string) {
+  const seenActionIds = new Set<string>();
+  for (const message of messages) {
+    for (const artifact of message.metadata?.artifacts || []) {
+      if (artifact?.kind === 'confirmation' && artifact?.action?.id) {
+        seenActionIds.add(artifact.action.id);
+      }
+    }
+  }
+
+  const missing = listPendingActions(conversationId, DEMO_USER_ID, ['pending', 'processing'])
+    .filter((action) => !seenActionIds.has(action.id))
+    .map(confirmationArtifactFromPendingAction)
+    .filter(Boolean);
+
+  const targetIndex = [...messages].reverse().findIndex((message) => message.role === 'assistant');
+  if (targetIndex === -1) return messages;
+  const realIndex = messages.length - 1 - targetIndex;
+  const previousUser = [...messages.slice(0, realIndex)].reverse().find((message) => message.role === 'user');
+  const artifactsToAttach = missing.length
+    ? missing
+    : createImplicitConfirmationFromAssistantText(
+        conversationId,
+        messages[realIndex].content || '',
+        previousUser?.content || '',
+        seenActionIds,
+      );
+  if (!artifactsToAttach.length) return messages;
+
+  return messages.map((message, index) => {
+    if (index !== realIndex) return message;
+    return {
+      ...message,
+      metadata: {
+        ...message.metadata,
+        artifacts: [...(message.metadata?.artifacts || []), ...artifactsToAttach],
+      },
+    };
+  });
+}
+
+function lineValue(text: string, labels: string[]) {
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.replace(/[*`>#\-•]/g, '').trim();
+    if (!labels.some((label) => line.includes(label))) continue;
+    const parts = line.split(/[:：]/);
+    if (parts.length < 2) continue;
+    return parts.slice(1).join('：').trim();
+  }
+  return '';
+}
+
+function normalizePlatformName(value: string) {
+  const text = value.toLowerCase();
+  if (/boss|直聘/.test(text)) return 'boss';
+  if (/智联|zhilian|zhaopin/.test(value)) return 'zhilian';
+  if (/51|前程|无忧/.test(value)) return '51job';
+  if (/实习僧|shixiseng/.test(value)) return 'shixiseng';
+  return 'boss';
+}
+
+function inferQueryFromUserMessage(message: string) {
+  return message
+    .replace(/帮我|请|麻烦|一下|查找|寻找|找找|找|搜索|搜|看看|看|获取|抓取/g, '')
+    .replace(/相关的?|有关的?|匹配的?|合适的?/g, '')
+    .replace(/岗位|职位|工作|专业|方向/g, '')
+    .replace(/[，。！？,.!?；;：:\s]/g, '')
+    .trim()
+    .slice(0, 40);
+}
+
+function parseImplicitCrawlPayload(finalText: string, lastUserMessage: string) {
+  const hasCrawlIntent = /抓取任务|执行抓取|创建.*抓取|确认.*抓取|请确认/.test(finalText)
+    && /抓取|平台|关键词|页数/.test(finalText);
+  if (!hasCrawlIntent) return null;
+
+  const platform = normalizePlatformName(lineValue(finalText, ['平台']));
+  const query = (lineValue(finalText, ['关键词', '搜索词', '职位'])
+    || inferQueryFromUserMessage(lastUserMessage))
+    .replace(/[，。；;].*$/, '')
+    .trim()
+    .slice(0, 80);
+  const city = (lineValue(finalText, ['城市', '地点']) || '全国')
+    .replace(/[，。；;].*$/, '')
+    .trim()
+    .slice(0, 20) || '全国';
+  const pagesText = lineValue(finalText, ['页数', '页']);
+  const pages = Math.min(3, Math.max(1, Number.parseInt(pagesText, 10) || 1));
+
+  if (!query || !isSupportedPlatform(platform)) return null;
+  return { platform, query, city, pages };
+}
+
+function createImplicitConfirmationFromAssistantText(
+  conversationId: string,
+  assistantText: string,
+  previousUserText: string,
+  seenActionIds: Set<string>,
+) {
+  const payload = parseImplicitCrawlPayload(assistantText, previousUserText);
+  if (!payload) return [];
+
+  const pending = createPendingAction(conversationId, 'crawl_jobs', payload, DEMO_USER_ID);
+  if (seenActionIds.has(pending.id)) return [];
+
+  const artifact = confirmationArtifactFromPendingAction(pending);
+  return artifact ? [artifact] : [];
+}
+
 router.get('/agent/status', (_req, res) => {
   res.json(getAgentStatus());
 });
@@ -86,8 +219,9 @@ router.post('/agent/config/test', async (_req, res) => {
   try {
     res.json(await testAgentModelConnection());
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    res.status(error instanceof AgentConfigurationError ? 503 : 502).json({ error: message });
+    const normalized = normalizeAgentError(error);
+    const message = normalized.message;
+    res.status(normalized instanceof AgentConfigurationError ? 503 : 502).json({ error: message });
   }
 });
 
@@ -103,7 +237,8 @@ router.post('/agent/conversations', (req, res) => {
 router.get('/agent/conversations/:id/messages', (req, res) => {
   const conversation = getConversation(req.params.id, DEMO_USER_ID);
   if (!conversation) return res.status(404).json({ error: '会话不存在' });
-  res.json(listMessages(conversation.id).map(hydrateActionStates));
+  const messages = listMessages(conversation.id).map(hydrateActionStates);
+  res.json(attachMissingPendingConfirmations(messages, conversation.id));
 });
 
 router.delete('/agent/conversations/:id', async (req, res) => {
@@ -157,8 +292,11 @@ router.post('/agent/chat', async (req, res) => {
     );
     sendEvent(res, 'done', { message: result.message });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const status = error instanceof AgentConfigurationError ? 503 : 500;
+    const normalized = normalizeAgentError(error);
+    const message = normalized.message;
+    const status = normalized instanceof AgentConfigurationError
+      ? 503
+      : normalized instanceof AgentModelConnectionError ? 502 : 500;
     sendEvent(res, 'error', { message, status });
   } finally {
     if (!res.writableEnded) res.end();

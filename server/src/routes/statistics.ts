@@ -29,6 +29,11 @@ router.get('/statistics', (_req, res) => {
   `).all(DEMO_USER_ID);
 
   res.json({
+    todayJobs,
+    totalJobs,
+    todayClicks,
+    totalClicks,
+    unclickedJobs: Math.max(0, totalJobs - totalClicks),
     todayCount: todayClicks,
     totalCount: totalClicks,
     pendingCount: totalJobs - totalClicks,

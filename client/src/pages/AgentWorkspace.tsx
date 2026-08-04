@@ -49,6 +49,25 @@ function artifactsOf(message: AgentMessage) {
   return message.metadata?.artifacts || [];
 }
 
+function artifactKey(artifact: AgentArtifact) {
+  if (artifact.kind === 'confirmation' && artifact.action?.id) return `confirmation:${artifact.action.id}`;
+  if (artifact.kind === 'crawl_result' && artifact.actionId) return `crawl_result:${artifact.actionId}`;
+  if (artifact.kind === 'job_list' && artifact.jobs?.length) return `job_list:${artifact.jobs.map((job) => job.id).join(',')}`;
+  return JSON.stringify(artifact);
+}
+
+function mergeArtifacts(left: AgentArtifact[], right: AgentArtifact[]) {
+  const merged: AgentArtifact[] = [];
+  const seen = new Set<string>();
+  for (const artifact of [...left, ...right]) {
+    const key = artifactKey(artifact);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(artifact);
+  }
+  return merged;
+}
+
 export default function AgentWorkspace() {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [conversations, setConversations] = useState<AgentConversation[]>([]);
@@ -208,18 +227,34 @@ export default function AgentWorkspace() {
               ? { ...message, content: message.content + token }
               : message
           )),
-          onArtifact: (artifact: AgentArtifact) => setMessages((current) => current.map((message) =>
-            message.id === temporaryAssistantId
+          onArtifact: (artifact: AgentArtifact) => {
+            if (artifact.kind === 'confirmation' && artifact.action?.id) {
+              setActionStates((current) => ({ ...current, [artifact.action!.id]: artifact.action!.status || 'pending' }));
+            }
+            setMessages((current) => current.map((message) =>
+              message.id === temporaryAssistantId
+                ? {
+                    ...message,
+                    metadata: {
+                      artifacts: mergeArtifacts(message.metadata.artifacts || [], [artifact]),
+                    },
+                  }
+                : message
+            ));
+          },
+          onDone: (message) => setMessages((current) => current.map((item) =>
+            item.id === temporaryAssistantId
               ? {
                   ...message,
                   metadata: {
-                    artifacts: [...(message.metadata.artifacts || []), artifact],
+                    ...message.metadata,
+                    artifacts: mergeArtifacts(
+                      item.metadata.artifacts || [],
+                      message.metadata?.artifacts || [],
+                    ),
                   },
                 }
-              : message
-          )),
-          onDone: (message) => setMessages((current) => current.map((item) =>
-            item.id === temporaryAssistantId ? message : item
+              : item
           )),
         },
         controller.signal,

@@ -26,8 +26,10 @@ export const deleteResume = (id: string) =>
   http.delete(`/resumes/${id}`).then(r => r.data);
 
 // ========== 平台 ==========
-export const fetchPlatforms = () =>
-  http.get<Platform[]>('/platforms').then(r => r.data);
+export const fetchPlatforms = (params?: { verify?: boolean }) =>
+  http.get<Platform[]>('/platforms', {
+    params: params?.verify ? { verify: '1' } : undefined,
+  }).then(r => r.data);
 
 export const bindPlatform = (name: string, data: { account: string; password: string }) =>
   http.post(`/platforms/${name}/bind`, data).then(r => r.data);
@@ -46,7 +48,7 @@ export const updateDeliverySettings = (data: Partial<DeliverySetting>) =>
   http.put('/delivery/settings', data).then(r => r.data);
 
 // ========== 投递记录 ==========
-export const fetchDeliveryRecords = (params: { page?: number; size?: number; platform?: string }) =>
+export const fetchDeliveryRecords = (params: { page?: number; size?: number; platform?: string; clickedDate?: string }) =>
   http.get<DeliveryRecordsResponse>('/delivery/records', { params }).then(r => r.data);
 
 // ========== 职位 ==========
@@ -63,11 +65,18 @@ export const fetchJobs = (params: {
   companyStatus?: string;
   clickStatus?: string;
   unclicked?: string;
+  crawledDate?: string;
 }) =>
   http.get<JobsResponse>('/jobs', { params }).then(r => r.data);
 
 export const clickJob = (id: string) =>
   http.post<{ success: boolean; url: string; alreadyClicked: boolean }>(`/jobs/${id}/click`).then(r => r.data);
+
+export const deleteJob = (id: string) =>
+  http.delete<{ success: boolean; deleted: number }>(`/jobs/${id}`).then(r => r.data);
+
+export const deleteJobs = (ids: string[]) =>
+  http.post<{ success: boolean; deleted: number }>('/jobs/bulk-delete', { ids }).then(r => r.data);
 
 // ========== Agent ==========
 export const fetchAgentStatus = () =>

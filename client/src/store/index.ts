@@ -19,7 +19,7 @@ interface AppState {
   // 平台
   platforms: Platform[];
   loadingPlatforms: boolean;
-  loadPlatforms: () => Promise<void>;
+  loadPlatforms: (options?: { verify?: boolean }) => Promise<void>;
   doLoginPlatform: (name: string) => Promise<void>;
   doLogoutPlatform: (name: string) => Promise<void>;
 
@@ -32,7 +32,7 @@ interface AppState {
   // 投递记录
   records: DeliveryRecordsResponse | null;
   loadingRecords: boolean;
-  loadRecords: (params?: { page?: number; size?: number; platform?: string }) => Promise<void>;
+  loadRecords: (params?: { page?: number; size?: number; platform?: string; clickedDate?: string }) => Promise<void>;
 
   // 职位
   jobs: JobsResponse | null;
@@ -48,9 +48,12 @@ interface AppState {
     companyStatus?: string;
     clickStatus?: string;
     unclicked?: string;
+    crawledDate?: string;
   }) => Promise<void>;
   crawlJobs: (data: { platform: string; query: string; city?: string; pages?: number }) => Promise<CrawlResult>;
   doClickJob: (id: string) => Promise<{ url: string; alreadyClicked: boolean }>;
+  deleteJob: (id: string) => Promise<number>;
+  deleteJobs: (ids: string[]) => Promise<number>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -98,10 +101,10 @@ export const useStore = create<AppState>((set, get) => ({
   // 平台
   platforms: [],
   loadingPlatforms: false,
-  loadPlatforms: async () => {
+  loadPlatforms: async (options) => {
     set({ loadingPlatforms: true });
     try {
-      const platforms = await api.fetchPlatforms();
+      const platforms = await api.fetchPlatforms(options);
       set({ platforms });
     } finally {
       set({ loadingPlatforms: false });
@@ -166,6 +169,10 @@ export const useStore = create<AppState>((set, get) => ({
     set({ crawling: true });
     try {
       const result = await api.crawlJobs(data);
+      if (result.needLogin) {
+        const platforms = await api.fetchPlatforms();
+        set({ platforms });
+      }
       // 抓取后刷新职位列表
       await get().loadJobs();
       return result;
@@ -184,5 +191,34 @@ export const useStore = create<AppState>((set, get) => ({
       set({ jobs: { ...jobs, records } });
     }
     return { url: result.url, alreadyClicked: result.alreadyClicked };
+  },
+  deleteJob: async (id) => {
+    const result = await api.deleteJob(id);
+    const jobs = get().jobs;
+    if (jobs && result.deleted > 0) {
+      set({
+        jobs: {
+          ...jobs,
+          total: Math.max(0, jobs.total - result.deleted),
+          records: jobs.records.filter((job) => job.id !== id),
+        },
+      });
+    }
+    return result.deleted;
+  },
+  deleteJobs: async (ids) => {
+    const result = await api.deleteJobs(ids);
+    const idSet = new Set(ids);
+    const jobs = get().jobs;
+    if (jobs && result.deleted > 0) {
+      set({
+        jobs: {
+          ...jobs,
+          total: Math.max(0, jobs.total - result.deleted),
+          records: jobs.records.filter((job) => !idSet.has(job.id)),
+        },
+      });
+    }
+    return result.deleted;
   },
 }));

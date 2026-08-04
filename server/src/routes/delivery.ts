@@ -112,6 +112,7 @@ router.get('/delivery/records', (req, res) => {
   const page = parseInt(req.query.page as string) || 1;
   const size = parseInt(req.query.size as string) || 20;
   const platform = req.query.platform as string;
+  const clickedDate = req.query.clickedDate as string;
 
   let where = 'WHERE c.user_id = ?';
   const params: any[] = [DEMO_USER_ID];
@@ -119,6 +120,9 @@ router.get('/delivery/records', (req, res) => {
   if (platform && platform !== 'all') {
     where += ' AND c.platform = ?';
     params.push(platform);
+  }
+  if (clickedDate === 'today') {
+    where += " AND date(c.clicked_at) = date('now')";
   }
 
   const total = (db.prepare(

@@ -1,4 +1,14 @@
-import { closeBrowser, ensureBrowser, ensureBrowserWithLogin, evaluateOnPlatformTab, hasLoginState, navigatePlatformTab } from './browser';
+import {
+  clearLoginSuccess,
+  closeBrowser,
+  ensureBrowser,
+  ensureBrowserWithLogin,
+  evaluateOnPlatformTab,
+  hasLoginState,
+  isLikelyLoginExpiredError,
+  isLikelyLoginRequired,
+  navigatePlatformTab,
+} from './browser';
 import type { CrawledJob } from './boss';
 import type { PlatformName } from '../platformRegistry';
 
@@ -461,6 +471,14 @@ export async function crawlStandardPlatform(
       }
 
       const bodyText = String(await evaluateOnPlatformTab(platform, 'document.body ? (document.body.innerText || "") : ""', 10000) || '');
+      if (platform !== 'shixiseng' && isLikelyLoginRequired(platform, currentUrl, bodyText)) {
+        clearLoginSuccess(platform);
+        return {
+          jobs: allJobs,
+          needLogin: true,
+          error: `${config.label} 登录态已失效，请先在平台管理页面重新登录。`,
+        };
+      }
       if (config.challengeKeywords.some((keyword) => bodyText.includes(keyword))) {
         return {
           jobs: allJobs,
@@ -506,6 +524,14 @@ export async function crawlStandardPlatform(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`❌ [${config.label}] 抓取失败:`, msg);
+    if (platform !== 'shixiseng' && isLikelyLoginExpiredError(msg)) {
+      clearLoginSuccess(platform);
+      return {
+        jobs: [],
+        needLogin: true,
+        error: `${config.label} 页面跳转导致抓取中断，登录态可能已失效，请重新登录后再试。`,
+      };
+    }
     return { jobs: [], error: `抓取失败: ${msg}` };
   } finally {
     await closeBrowser(platform);

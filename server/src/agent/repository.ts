@@ -158,6 +158,26 @@ export function getPendingAction(id: string, userId = DEMO_USER_ID) {
   };
 }
 
+export function listPendingActions(
+  conversationId: string,
+  userId = DEMO_USER_ID,
+  statuses: Array<'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'> = ['pending'],
+) {
+  const safeStatuses = statuses.length ? statuses : ['pending'];
+  const placeholders = safeStatuses.map(() => '?').join(', ');
+  const rows = db.prepare(`
+    SELECT * FROM agent_pending_actions
+    WHERE conversation_id = ? AND user_id = ? AND status IN (${placeholders})
+      AND expires_at > datetime('now')
+    ORDER BY created_at ASC
+  `).all(conversationId, userId, ...safeStatuses) as any[];
+  return rows.map((row) => ({
+    ...row,
+    payload: parseJsonObject(row.payload),
+    result: parseJsonObject(row.result),
+  }));
+}
+
 export function claimPendingAction(id: string, userId = DEMO_USER_ID) {
   const result = db.prepare(`
     UPDATE agent_pending_actions

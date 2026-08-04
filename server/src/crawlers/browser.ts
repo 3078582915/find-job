@@ -347,6 +347,63 @@ export function hasLoginState(platform: string): boolean {
   }
 }
 
+function normalizeForLoginCheck(value: string): string {
+  return value.replace(/\s+/g, '');
+}
+
+export function isLikelyLoginRequired(platform: string, url: string, bodyText = ''): boolean {
+  const config = getPlatformConfig(platform);
+  const currentUrl = String(url || '');
+  if (config?.loginRequiredUrlPattern?.test(currentUrl)) return true;
+
+  const compactText = normalizeForLoginCheck(String(bodyText || ''));
+  const keywords = config?.loginRequiredKeywords || ['请先登录', '登录后查看', '登录/注册', '扫码登录'];
+  return keywords.some((keyword) => compactText.includes(normalizeForLoginCheck(keyword)));
+}
+
+export function isLikelyLoginExpiredError(message: string): boolean {
+  return /Inspected target navigated or closed|Execution context was destroyed|Cannot find context|Target closed|Session closed/i
+    .test(message);
+}
+
+export async function validateLoginState(platform: string, probeUrl?: string): Promise<boolean> {
+  if (!hasLoginState(platform)) return false;
+
+  const config = getPlatformConfig(platform);
+  const url = probeUrl || config?.loginProbeUrl;
+  if (!url) return true;
+
+  try {
+    await ensureBrowser(platform, url);
+    await navigatePlatformTab(platform, url, 45000);
+    await sleep(1800);
+
+    const currentUrl = String(await evaluateOnPlatformTab(platform, 'window.location.href', 10000) || '');
+    const bodyText = String(await evaluateOnPlatformTab(platform, 'document.body ? (document.body.innerText || "") : ""', 10000) || '');
+    if (isLikelyLoginRequired(platform, currentUrl, bodyText)) {
+      clearLoginSuccess(platform);
+      return false;
+    }
+
+    if (config?.loginCheckExpression) {
+      const pageConfirmed = Boolean(await evaluateOnPlatformTab(platform, config.loginCheckExpression, 5000).catch(() => false));
+      if (config.requiresVerifiedLoginState && !pageConfirmed) {
+        clearLoginSuccess(platform);
+        return false;
+      }
+    }
+
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (isLikelyLoginExpiredError(message)) {
+      clearLoginSuccess(platform);
+      return false;
+    }
+    return hasLoginState(platform);
+  }
+}
+
 export function getLoginStatePath(platform: string): string {
   return getStorageStatePath(platform);
 }

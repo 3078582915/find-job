@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { ExternalLink, Trash2 } from 'lucide-react';
 import { useStore } from '../store';
 import { PLATFORM_LABELS, PLATFORM_COLORS, PLATFORM_CONFIG, type Job } from '../types';
 import { cleanJobText, formatSalary, hasUnreadableChars } from '../utils/display';
@@ -6,7 +8,11 @@ import { cleanJobText, formatSalary, hasUnreadableChars } from '../utils/display
 const CITIES = ['全国', '北京', '上海', '广州', '深圳', '杭州', '成都', '南京', '武汉', '西安'];
 
 export default function JobSquare() {
-  const { jobs, loadingJobs, crawling, loadJobs, crawlJobs, doClickJob, platforms, loadPlatforms } = useStore();
+  const {
+    jobs, loadingJobs, crawling, loadJobs, crawlJobs, doClickJob,
+    deleteJob, deleteJobs, platforms, loadPlatforms, loadStatistics,
+  } = useStore();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // 抓取表单
   const [crawlPlatform, setCrawlPlatform] = useState('boss');
@@ -22,12 +28,33 @@ export default function JobSquare() {
   const [salaryStatus, setSalaryStatus] = useState('all');
   const [companyStatus, setCompanyStatus] = useState('all');
   const [clickStatus, setClickStatus] = useState('all');
+  const [crawledDate, setCrawledDate] = useState(searchParams.get('crawledDate') || 'all');
 
   // 分页
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
   const [crawlMessage, setCrawlMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [selectedJobIds, setSelectedJobIds] = useState<Set<string>>(() => new Set());
+  const [deletingJobs, setDeletingJobs] = useState(false);
+
+  const jobs_list = useMemo(() => jobs?.records || [], [jobs]);
+  const total = jobs?.total || 0;
+  const totalPages = Math.ceil(total / pageSize) || 1;
+  const selectedCount = selectedJobIds.size;
+  const allCurrentPageSelected = jobs_list.length > 0 && jobs_list.every((job) => selectedJobIds.has(job.id));
+
+  const loadCurrentJobs = (nextPage = page) => loadJobs({
+    page: nextPage,
+    size: pageSize,
+    platform: filterPlatform,
+    keyword: debouncedKeyword,
+    city: filterCity,
+    salaryStatus,
+    companyStatus,
+    clickStatus,
+    crawledDate,
+  });
 
   const formatCrawlError = (message?: string) => {
     if (!message) return '抓取失败，请稍后重试';
@@ -53,16 +80,48 @@ export default function JobSquare() {
   }, [filterKeyword]);
 
   useEffect(() => {
-    loadJobs({
-      page, size: pageSize,
-      platform: filterPlatform,
-      keyword: debouncedKeyword,
-      city: filterCity,
-      salaryStatus,
-      companyStatus,
-      clickStatus,
+    loadCurrentJobs();
+  }, [page, filterPlatform, debouncedKeyword, filterCity, salaryStatus, companyStatus, clickStatus, crawledDate]);
+
+  useEffect(() => {
+    const next = searchParams.get('crawledDate') || 'all';
+    setCrawledDate(next);
+    setPage(1);
+  }, [searchParams]);
+
+  useEffect(() => {
+    const visibleIds = new Set(jobs_list.map((job) => job.id));
+    setSelectedJobIds((prev) => {
+      const next = new Set([...prev].filter((id) => visibleIds.has(id)));
+      return next.size === prev.size ? prev : next;
     });
-  }, [page, filterPlatform, debouncedKeyword, filterCity, salaryStatus, companyStatus, clickStatus]);
+  }, [jobs_list]);
+
+  const clearCrawledDateFilter = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('crawledDate');
+    setSearchParams(next);
+    setCrawledDate('all');
+    setPage(1);
+  };
+
+  const toggleJobSelection = (id: string) => {
+    setSelectedJobIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleCurrentPageSelection = () => {
+    setSelectedJobIds((prev) => {
+      if (allCurrentPageSelected) return new Set();
+      const next = new Set(prev);
+      jobs_list.forEach((job) => next.add(job.id));
+      return next;
+    });
+  };
 
   const handleCrawl = async () => {
     if (!crawlQuery.trim()) {
@@ -99,8 +158,14 @@ export default function JobSquare() {
       }
       setPage(1);
     } catch (err: any) {
-      const msg = err?.response?.data?.error || err.message || '未知错误';
-      setCrawlMessage({ type: 'error', text: `抓取失败：${msg}` });
+      const payload = err?.response?.data;
+      const msg = payload?.error || err.message || '未知错误';
+      if (payload?.needLogin) {
+        await loadPlatforms();
+        setCrawlMessage({ type: 'error', text: msg || '需要先登录平台' });
+      } else {
+        setCrawlMessage({ type: 'error', text: `抓取失败：${msg}` });
+      }
     }
   };
 
@@ -128,6 +193,53 @@ export default function JobSquare() {
     }
   };
 
+  const handleDeleteJob = async (job: Job) => {
+    const title = cleanJobText(job.title) || job.title || '该职位';
+    if (!window.confirm(`确定删除「${title}」吗？相关查看记录也会一起删除。`)) return;
+
+    setDeletingJobs(true);
+    try {
+      const nextPage = jobs_list.length === 1 && page > 1 ? page - 1 : page;
+      const deleted = await deleteJob(job.id);
+      setSelectedJobIds((prev) => {
+        const next = new Set(prev);
+        next.delete(job.id);
+        return next;
+      });
+      if (nextPage !== page) setPage(nextPage);
+      await loadCurrentJobs(nextPage);
+      await loadStatistics();
+      setCrawlMessage({ type: 'success', text: `已删除 ${deleted} 个岗位` });
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err.message || '未知错误';
+      setCrawlMessage({ type: 'error', text: `删除失败：${msg}` });
+    } finally {
+      setDeletingJobs(false);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    const ids = [...selectedJobIds];
+    if (ids.length === 0) return;
+    if (!window.confirm(`确定删除选中的 ${ids.length} 个岗位吗？相关查看记录也会一起删除。`)) return;
+
+    setDeletingJobs(true);
+    try {
+      const nextPage = ids.length >= jobs_list.length && page > 1 ? page - 1 : page;
+      const deleted = await deleteJobs(ids);
+      setSelectedJobIds(new Set());
+      if (nextPage !== page) setPage(nextPage);
+      await loadCurrentJobs(nextPage);
+      await loadStatistics();
+      setCrawlMessage({ type: 'success', text: `已删除 ${deleted} 个岗位` });
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err.message || '未知错误';
+      setCrawlMessage({ type: 'error', text: `批量删除失败：${msg}` });
+    } finally {
+      setDeletingJobs(false);
+    }
+  };
+
   const parseTags = (tags: string): string[] => {
     try {
       return (JSON.parse(tags || '[]') as string[])
@@ -137,10 +249,6 @@ export default function JobSquare() {
       return [];
     }
   };
-
-  const jobs_list = jobs?.records || [];
-  const total = jobs?.total || 0;
-  const totalPages = Math.ceil(total / pageSize) || 1;
 
   return (
     <div>
@@ -276,7 +384,47 @@ export default function JobSquare() {
           <option value="unclicked">未查看</option>
           <option value="clicked">已查看</option>
         </select>
+        {crawledDate === 'today' && (
+          <button
+            type="button"
+            onClick={clearCrawledDateFilter}
+            className="px-3 py-2 rounded-lg border border-[#D6E3EF] bg-[#F4FAFF] text-sm text-primary hover:border-primary"
+          >
+            今日新增 ×
+          </button>
+        )}
         <span className="ml-auto text-sm text-[#7F8C8D]">共 {total} 个职位</span>
+      </div>
+
+      {/* 数据库清理 */}
+      <div className="bg-white rounded-xl p-4 shadow-sm mb-5 flex flex-wrap items-center gap-3">
+        <label className="inline-flex items-center gap-2 text-sm text-[#2C3E50] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={allCurrentPageSelected}
+            onChange={toggleCurrentPageSelection}
+            disabled={loadingJobs || jobs_list.length === 0 || deletingJobs}
+            className="h-4 w-4 rounded border-[#D6E3EF] text-accent focus:ring-accent"
+          />
+          全选本页
+        </label>
+        <span className="text-sm text-[#7F8C8D]">
+          当前筛选结果直接来自抓取数据库，可手动删除无用岗位
+        </span>
+        {selectedCount > 0 && (
+          <>
+            <span className="ml-auto text-sm font-medium text-[#2C3E50]">已选择 {selectedCount} 个</span>
+            <button
+              type="button"
+              onClick={handleDeleteSelected}
+              disabled={deletingJobs}
+              className="px-4 py-2 rounded-lg bg-[#E74C3C] text-white text-sm font-medium hover:bg-[#C0392B] disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+            >
+              <Trash2 size={14} />
+              {deletingJobs ? '删除中...' : '删除选中'}
+            </button>
+          </>
+        )}
       </div>
 
       {/* 职位列表 */}
@@ -304,11 +452,25 @@ export default function JobSquare() {
             const education = cleanJobText(job.education);
             const companySize = cleanJobText(job.company_size);
             const companyIndustry = cleanJobText(job.company_industry);
+            const isSelected = selectedJobIds.has(job.id);
             return (
               <div
                 key={job.id}
-                className="bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-start gap-4"
+                className={`bg-white rounded-xl p-5 shadow-sm hover:shadow-md transition-all duration-300 flex items-start gap-4 ${
+                  isSelected ? 'ring-2 ring-accent/30' : ''
+                }`}
               >
+                <label className="pt-3 shrink-0 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleJobSelection(job.id)}
+                    disabled={deletingJobs}
+                    aria-label={`选择 ${title}`}
+                    className="h-4 w-4 rounded border-[#D6E3EF] text-accent focus:ring-accent"
+                  />
+                </label>
+
                 {/* 平台标识 */}
                 <div
                   className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-lg shrink-0"
@@ -345,9 +507,19 @@ export default function JobSquare() {
                   <span className="text-xs text-[#7F8C8D]">{PLATFORM_LABELS[job.platform]}</span>
                   <button
                     onClick={() => handleClick(job)}
-                    className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-[#FF8C5A] transition-colors text-sm font-medium whitespace-nowrap"
+                    className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-[#FF8C5A] transition-colors text-sm font-medium whitespace-nowrap inline-flex items-center gap-1.5"
                   >
-                    {job.clicked ? '再次查看' : '去投递 →'}
+                    <ExternalLink size={14} />
+                    {job.clicked ? '再次查看' : '去投递'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteJob(job)}
+                    disabled={deletingJobs}
+                    className="px-4 py-2 border border-[#E74C3C]/30 text-[#E74C3C] rounded-lg hover:bg-[#E74C3C]/10 transition-colors text-sm font-medium whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+                  >
+                    <Trash2 size={14} />
+                    删除
                   </button>
                 </div>
               </div>

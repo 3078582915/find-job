@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../store';
 import { PLATFORM_LABELS, PLATFORM_COLORS } from '../types';
 import { cleanJobText, formatSalary } from '../utils/display';
@@ -9,17 +10,36 @@ import {
 
 export default function DeliveryHistory() {
   const { records, statistics, loadingRecords, loadRecords, loadStatistics } = useStore();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<'records' | 'statistics'>('records');
   const [platformFilter, setPlatformFilter] = useState('all');
+  const [clickedDate, setClickedDate] = useState(searchParams.get('clickedDate') || 'all');
 
   useEffect(() => {
-    loadRecords({ size: 50 });
     loadStatistics();
   }, []);
 
   useEffect(() => {
-    loadRecords({ size: 50, platform: platformFilter });
-  }, [platformFilter]);
+    loadRecords({
+      size: 50,
+      platform: platformFilter,
+      clickedDate: clickedDate === 'today' ? 'today' : undefined,
+    });
+  }, [platformFilter, clickedDate]);
+
+  useEffect(() => {
+    const next = searchParams.get('clickedDate') || 'all';
+    setClickedDate(next);
+    setTab('records');
+  }, [searchParams]);
+
+  const handleClickedDateChange = (value: string) => {
+    setClickedDate(value);
+    const next = new URLSearchParams(searchParams);
+    if (value === 'today') next.set('clickedDate', 'today');
+    else next.delete('clickedDate');
+    setSearchParams(next);
+  };
 
   const recs = records?.records || [];
 
@@ -64,16 +84,26 @@ export default function DeliveryHistory() {
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="flex justify-between items-center px-6 py-5 border-b border-[#E1E8ED] flex-wrap gap-3">
             <h3 className="text-lg font-semibold">查看历史</h3>
-            <select
-              value={platformFilter}
-              onChange={(e) => setPlatformFilter(e.target.value)}
-              className="w-[120px] px-3 py-2 border border-[#E1E8ED] rounded-lg bg-[#F5F7FA] text-sm cursor-pointer"
-            >
-              <option value="all">全部平台</option>
-              {Object.entries(PLATFORM_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>{v}</option>
-              ))}
-            </select>
+            <div className="flex flex-wrap gap-2">
+              <select
+                value={clickedDate}
+                onChange={(e) => handleClickedDateChange(e.target.value)}
+                className="w-[120px] px-3 py-2 border border-[#E1E8ED] rounded-lg bg-[#F5F7FA] text-sm cursor-pointer"
+              >
+                <option value="all">全部时间</option>
+                <option value="today">今日查看</option>
+              </select>
+              <select
+                value={platformFilter}
+                onChange={(e) => setPlatformFilter(e.target.value)}
+                className="w-[120px] px-3 py-2 border border-[#E1E8ED] rounded-lg bg-[#F5F7FA] text-sm cursor-pointer"
+              >
+                <option value="all">全部平台</option>
+                {Object.entries(PLATFORM_LABELS).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+            </div>
           </div>
           {loadingRecords ? (
             <div className="p-6 space-y-3">

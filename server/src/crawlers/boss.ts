@@ -1,4 +1,13 @@
-import { ensureBrowserWithLogin, closeBrowser, hasLoginState, navigateZhipinTab, evaluateOnZhipinTab } from './browser';
+import {
+  ensureBrowserWithLogin,
+  closeBrowser,
+  hasLoginState,
+  navigateZhipinTab,
+  evaluateOnZhipinTab,
+  clearLoginSuccess,
+  isLikelyLoginExpiredError,
+  isLikelyLoginRequired,
+} from './browser';
 import { decodeBossPrivateText } from '../salaryCodec';
 
 export interface CrawledJob {
@@ -258,6 +267,14 @@ export async function crawlBoss(
 
       // Check for security challenge
       const bodyText = await evaluateOnZhipinTab('document.body ? (document.body.innerText || "") : ""', 10000);
+      if (isLikelyLoginRequired('boss', String(currentUrl), String(bodyText))) {
+        clearLoginSuccess('boss');
+        return {
+          jobs: allJobs,
+          needLogin: true,
+          error: 'BOSS直聘登录态已失效，请先在平台管理页面重新登录。',
+        };
+      }
       if (bodyText.includes('安全验证') || bodyText.includes('验证码') || bodyText.includes('滑动') || bodyText.includes('访问验证')) {
         return {
           jobs: allJobs,
@@ -305,6 +322,10 @@ export async function crawlBoss(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`❌ [BOSS] 抓取失败:`, msg);
+    if (isLikelyLoginExpiredError(msg)) {
+      clearLoginSuccess('boss');
+      return { jobs: [], needLogin: true, error: 'BOSS直聘页面跳转导致抓取中断，登录态可能已失效，请重新登录后再试。' };
+    }
     return { jobs: [], error: `抓取失败: ${msg}` };
   } finally {
     await closeBrowser('boss');

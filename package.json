@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:client": "cd client && npm run dev",
-    "dev:server": "cd server && npm run dev",
+    "dev": "chcp 65001 > nul && concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "chcp 65001 > nul && npm --prefix client run dev",
+    "dev:server": "chcp 65001 > nul && npm --prefix server run dev",
     "build": "npm run build --prefix server && npm run build --prefix client",
     "install:all": "npm install && cd client && npm install && cd ../server && npm install"
   },

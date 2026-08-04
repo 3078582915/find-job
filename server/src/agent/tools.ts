@@ -1,7 +1,7 @@
 import { tool } from 'langchain';
 import { z } from 'zod';
 import db from '../database';
-import { hasLoginState } from '../crawlers/browser';
+import { validateLoginState } from '../crawlers/browser';
 import { PLATFORM_CONFIG, isSupportedPlatform } from '../platformRegistry';
 import {
   getJobById,
@@ -98,13 +98,16 @@ export function createAgentTools(context: ToolContext) {
   );
 
   const getPlatformStatusTool = tool(
-    async () => runLogged('get_platform_status', {}, () => {
-      const platforms = PLATFORM_CONFIG.map((platform) => ({
-        name: platform.name,
-        label: platform.label,
-        loggedIn: hasLoginState(platform.name),
-        requiresLoginForCrawl: platform.requiresLoginForCrawl,
-      }));
+    async () => runLogged('get_platform_status', {}, async () => {
+      const platforms = [];
+      for (const platform of PLATFORM_CONFIG) {
+        platforms.push({
+          name: platform.name,
+          label: platform.label,
+          loggedIn: await validateLoginState(platform.name),
+          requiresLoginForCrawl: platform.requiresLoginForCrawl,
+        });
+      }
       return toolResult('已检查平台状态。', { kind: 'platform_status', platforms });
     }),
     {

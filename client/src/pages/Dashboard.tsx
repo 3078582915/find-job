@@ -15,6 +15,10 @@ export default function Dashboard() {
   }, []);
 
   const recentRecords = records?.records?.slice(0, 5) || [];
+  const todayJobs = statistics?.todayJobs ?? statistics?.interviewCount ?? 0;
+  const totalJobs = statistics?.totalJobs ?? statistics?.pendingCount ?? 0;
+  const todayClicks = statistics?.todayClicks ?? statistics?.todayCount ?? 0;
+  const totalClicks = statistics?.totalClicks ?? statistics?.totalCount ?? 0;
 
   return (
     <div>
@@ -32,10 +36,38 @@ export default function Dashboard() {
         </div>
       ) : statistics ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-          <StatCard value={statistics.interviewCount} label="今日新职位" icon="📋" color="primary" />
-          <StatCard value={statistics.pendingCount} label="总职位数" icon="📊" color="accent" />
-          <StatCard value={statistics.todayCount} label="今日查看" icon="👀" color="success" />
-          <StatCard value={statistics.totalCount} label="总查看数" icon="🎯" color="warning" />
+          <StatCard
+            value={todayJobs}
+            label="今日新职位"
+            icon="📋"
+            color="primary"
+            onClick={() => navigate('/jobs?crawledDate=today')}
+            hint="查看今日新增职位"
+          />
+          <StatCard
+            value={totalJobs}
+            label="总职位数"
+            icon="📊"
+            color="accent"
+            onClick={() => navigate('/jobs')}
+            hint="查看全部职位"
+          />
+          <StatCard
+            value={todayClicks}
+            label="今日查看"
+            icon="👀"
+            color="success"
+            onClick={() => navigate('/history?clickedDate=today')}
+            hint="查看今日记录"
+          />
+          <StatCard
+            value={totalClicks}
+            label="总查看数"
+            icon="🎯"
+            color="warning"
+            onClick={() => navigate('/history')}
+            hint="查看全部记录"
+          />
         </div>
       ) : null}
 

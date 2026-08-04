@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import db from '../database';
 import { v4 as uuidv4 } from '../utils';
-import { loginInteractive, hasLoginState } from '../crawlers/browser';
+import { loginInteractive, hasLoginState, validateLoginState } from '../crawlers/browser';
 import { decodeBossPrivateText } from '../salaryCodec';
 import { getPlatformConfig, isSupportedPlatform } from '../platformRegistry';
 import { crawlAndStoreJobs } from '../services/jobService';
@@ -20,6 +20,24 @@ function normalizeText(value: unknown, maxLength = 80): string {
   return value.trim().slice(0, maxLength);
 }
 
+function normalizeIds(value: unknown, maxCount = 100): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(
+    value
+      .filter((id): id is string => typeof id === 'string')
+      .map((id) => id.trim())
+      .filter(Boolean)
+  )].slice(0, maxCount);
+}
+
+const deleteJobsByIds = db.transaction((ids: string[]) => {
+  if (ids.length === 0) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  db.prepare(`DELETE FROM job_clicks WHERE job_id IN (${placeholders})`).run(...ids);
+  const result = db.prepare(`DELETE FROM jobs WHERE id IN (${placeholders})`).run(...ids);
+  return result.changes;
+});
+
 // 触发抓取职位
 router.post('/jobs/crawl', async (req, res) => {
   const platform = normalizeText(req.body.platform, 20) || 'boss';
@@ -35,7 +53,7 @@ router.post('/jobs/crawl', async (req, res) => {
   try {
     const result = await crawlAndStoreJobs({ platform, query, city, pages });
     if (result.needLogin) {
-      return res.status(403).json({ error: result.error, needLogin: true });
+      return res.json(result);
     }
     res.json(result);
   } catch (err) {
@@ -54,6 +72,7 @@ router.get('/jobs', (req, res) => {
   const salaryStatus = normalizeText(req.query.salaryStatus, 20);
   const companyStatus = normalizeText(req.query.companyStatus, 20);
   const clickStatus = normalizeText(req.query.clickStatus, 20);
+  const crawledDate = normalizeText(req.query.crawledDate, 20);
   const onlyUnclicked = req.query.unclicked === '1';
 
   let where = 'WHERE 1=1';
@@ -80,6 +99,9 @@ router.get('/jobs', (req, res) => {
     where += " AND TRIM(COALESCE(j.company_name, '')) <> ''";
   } else if (companyStatus === 'missing') {
     where += " AND TRIM(COALESCE(j.company_name, '')) = ''";
+  }
+  if (crawledDate === 'today') {
+    where += " AND date(j.crawled_at) = date('now')";
   }
   if (clickStatus === 'clicked') {
     where += ' AND EXISTS (SELECT 1 FROM job_clicks WHERE job_id = j.id AND user_id = ?)';
@@ -133,6 +155,26 @@ router.post('/jobs/:id/click', (req, res) => {
   }
 
   res.json({ success: true, url: job.job_url, alreadyClicked: !!existing });
+});
+
+router.delete('/jobs/:id', (req, res) => {
+  const id = normalizeText(req.params.id, 80);
+  if (!id) return res.status(400).json({ error: '缺少职位 ID' });
+
+  const deleted = deleteJobsByIds([id]);
+  if (!deleted) return res.status(404).json({ error: '职位不存在或已被删除' });
+
+  res.json({ success: true, deleted });
+});
+
+router.post('/jobs/bulk-delete', (req, res) => {
+  const ids = normalizeIds(req.body.ids);
+  if (ids.length === 0) {
+    return res.status(400).json({ error: '请选择要删除的职位' });
+  }
+
+  const deleted = deleteJobsByIds(ids);
+  res.json({ success: true, deleted });
 });
 
 // 职位统计
@@ -231,9 +273,11 @@ router.post('/platforms/:name/login', async (req, res) => {
 });
 
 // 检查登录状态
-router.get('/platforms/:name/login-status', (req, res) => {
+router.get('/platforms/:name/login-status', async (req, res) => {
   const { name } = req.params;
-  const loggedIn = hasLoginState(name);
+  const loggedIn = req.query.verify === '1' || req.query.verify === 'true'
+    ? await validateLoginState(name)
+    : hasLoginState(name);
   res.json({ platform: name, loggedIn });
 });
 

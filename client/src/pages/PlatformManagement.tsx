@@ -7,7 +7,7 @@ export default function PlatformManagement() {
   const [loginLoading, setLoginLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  useEffect(() => { loadPlatforms(); }, []);
+  useEffect(() => { loadPlatforms({ verify: true }); }, []);
 
   const handleLoginPlatform = async (name: string) => {
     const label = PLATFORM_LABELS[name] || name;

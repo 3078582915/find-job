@@ -1,30 +1,44 @@
 import { Router } from 'express';
 import db from '../database';
 import { v4 as uuidv4 } from '../utils';
-import { hasLoginState, clearLoginSuccess } from '../crawlers/browser';
+import { hasLoginState, clearLoginSuccess, validateLoginState } from '../crawlers/browser';
 import { PLATFORM_CONFIG } from '../platformRegistry';
 
 const router = Router();
 const DEMO_USER_ID = 'u001';
 
-router.get('/platforms', (_req, res) => {
+function markPlatformLoginState(platform: string, loggedIn: boolean) {
+  db.prepare(
+    'UPDATE platform_accounts SET login_state = ?, status = ? WHERE user_id = ? AND platform_name = ?'
+  ).run(loggedIn ? 'logged_in' : 'unlogged', loggedIn ? 'active' : 'inactive', DEMO_USER_ID, platform);
+}
+
+router.get('/platforms', async (req, res) => {
   const accounts = db.prepare(
     'SELECT * FROM platform_accounts WHERE user_id = ?'
   ).all(DEMO_USER_ID) as any[];
+  const shouldVerify = req.query.verify === '1' || req.query.verify === 'true';
 
-  const platforms = PLATFORM_CONFIG.map(config => {
+  const platforms = [];
+  for (const config of PLATFORM_CONFIG) {
     const account = accounts.find(a => a.platform_name === config.name);
-    const loggedIn = hasLoginState(config.name);
+    const loggedIn = shouldVerify
+      ? await validateLoginState(config.name)
+      : hasLoginState(config.name);
+    if (shouldVerify && account) markPlatformLoginState(config.name, loggedIn);
     const {
       loginUrl: _loginUrl,
       successUrlPattern: _successUrlPattern,
       hosts: _hosts,
       authCookieNames: _authCookieNames,
+      loginProbeUrl: _loginProbeUrl,
+      loginRequiredUrlPattern: _loginRequiredUrlPattern,
+      loginRequiredKeywords: _loginRequiredKeywords,
       loginCheckExpression: _loginCheckExpression,
       requiresVerifiedLoginState: _requiresVerifiedLoginState,
       ...publicConfig
     } = config;
-    return {
+    platforms.push({
       ...publicConfig,
       bound: loggedIn,
       status: loggedIn ? 'active' : 'inactive',
@@ -32,8 +46,8 @@ router.get('/platforms', (_req, res) => {
       lastLogin: account?.last_login || null,
       lastSync: account?.last_sync || null,
       accountId: account?.account_id || null,
-    };
-  });
+    });
+  }
 
   res.json(platforms);
 });
@@ -64,7 +78,18 @@ router.post('/platforms/:name/bind', (req, res) => {
     ).run(uuidv4(), DEMO_USER_ID, name, account, JSON.stringify({ password: '***' }), 'active');
   }
 
-  const { loginUrl: _loginUrl, successUrlPattern: _successUrlPattern, hosts: _hosts, ...publicConfig } = config;
+  const {
+    loginUrl: _loginUrl,
+    successUrlPattern: _successUrlPattern,
+    hosts: _hosts,
+    authCookieNames: _authCookieNames,
+    loginProbeUrl: _loginProbeUrl,
+    loginRequiredUrlPattern: _loginRequiredUrlPattern,
+    loginRequiredKeywords: _loginRequiredKeywords,
+    loginCheckExpression: _loginCheckExpression,
+    requiresVerifiedLoginState: _requiresVerifiedLoginState,
+    ...publicConfig
+  } = config;
   res.json({ success: true, platform: { ...publicConfig, bound: true, status: 'active' } });
 });
 

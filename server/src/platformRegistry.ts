@@ -10,6 +10,9 @@ export interface PlatformConfig {
   successUrlPattern: RegExp;
   hosts: string[];
   authCookieNames?: string[];
+  loginProbeUrl?: string;
+  loginRequiredUrlPattern?: RegExp;
+  loginRequiredKeywords?: string[];
   loginCheckExpression?: string;
   requiresVerifiedLoginState?: boolean;
   requiresLoginForCrawl: boolean;
@@ -26,6 +29,9 @@ export const PLATFORM_CONFIG: PlatformConfig[] = [
     successUrlPattern: /zhipin\.com\/web\/geek\//,
     hosts: ['zhipin.com', 'bosszhipin.com', 'kanzhun.com'],
     authCookieNames: ['wt2', 'zp_at', '__zp_stoken__'],
+    loginProbeUrl: 'https://www.zhipin.com/web/geek/',
+    loginRequiredUrlPattern: /login\.zhipin\.com|zhipin\.com\/web\/user/i,
+    loginRequiredKeywords: ['扫码登录', '登录/注册', '请先登录', '登录后查看'],
     requiresLoginForCrawl: true,
   },
   {
@@ -38,6 +44,9 @@ export const PLATFORM_CONFIG: PlatformConfig[] = [
     successUrlPattern: /https?:\/\/(?!passport\.)[^/]*zhaopin\.com/i,
     hosts: ['zhaopin.com'],
     authCookieNames: ['at', 'rt', 'zp_passport_deepknow_sessionId'],
+    loginProbeUrl: 'https://www.zhaopin.com/',
+    loginRequiredUrlPattern: /passport\.zhaopin\.com|login\.zhaopin\.com/i,
+    loginRequiredKeywords: ['扫码登录', '账号登录', '登录/注册', '请先登录', '登录后查看'],
     requiresLoginForCrawl: true,
   },
   {
@@ -50,6 +59,9 @@ export const PLATFORM_CONFIG: PlatformConfig[] = [
     successUrlPattern: /https?:\/\/(?!(?:login|passport)\.)[^/]*51job\.com/i,
     hosts: ['51job.com', '51jobcdn.com'],
     authCookieNames: ['51job', 'ps'],
+    loginProbeUrl: 'https://we.51job.com/',
+    loginRequiredUrlPattern: /login\.51job\.com|passport\.51job\.com/i,
+    loginRequiredKeywords: ['会员登录', '账号登录', '登录/注册', '请先登录', '登录后查看'],
     requiresLoginForCrawl: true,
   },
   {
@@ -61,6 +73,9 @@ export const PLATFORM_CONFIG: PlatformConfig[] = [
     loginUrl: 'https://www.shixiseng.com/',
     successUrlPattern: /https?:\/\/[^/]*shixiseng\.com/i,
     hosts: ['shixiseng.com', 'xiaoyuanzhao.com'],
+    loginProbeUrl: 'https://www.shixiseng.com/',
+    loginRequiredUrlPattern: /passport\.shixiseng\.com|login\.shixiseng\.com/i,
+    loginRequiredKeywords: ['扫码登录', '账号登录', '登录/注册', '请先登录'],
     loginCheckExpression: `(() => {
       const status = document.querySelector('.login-status, header [class*="login-status"]');
       const account = status?.querySelector('.logined');

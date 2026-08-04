@@ -110,6 +110,11 @@ export interface DeliverySetting {
 
 // ========== 统计数据 ==========
 export interface Statistics {
+  todayJobs?: number;
+  totalJobs?: number;
+  todayClicks?: number;
+  totalClicks?: number;
+  unclickedJobs?: number;
   todayCount: number;
   totalCount: number;
   pendingCount: number;

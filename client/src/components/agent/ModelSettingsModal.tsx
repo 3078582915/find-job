@@ -16,7 +16,7 @@ import type { AgentModelConfig } from '../../types';
 type Provider = AgentModelConfig['provider'];
 
 const PRESETS: Record<Exclude<Provider, 'custom'>, { model: string; baseUrl: string }> = {
-  deepseek: { model: 'deepseek-v4-flash', baseUrl: 'https://api.deepseek.com' },
+  deepseek: { model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com' },
   openai: { model: 'gpt-4.1-mini', baseUrl: '' },
 };
 
@@ -187,7 +187,7 @@ export default function ModelSettingsModal({ open, onClose, onConfigured }: Mode
                 id="agent-model"
                 value={model}
                 onChange={(event) => setModel(event.target.value)}
-                placeholder="deepseek-v4-flash"
+                placeholder="deepseek-chat"
                 className="h-11 w-full rounded-md border border-[#CCD7DF] px-3 text-sm text-[#17324D] outline-none focus:border-[#6C879A]"
               />
             </div>
