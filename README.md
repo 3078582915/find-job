@@ -7,6 +7,8 @@
 ## 功能亮点
 
 - 🤖 **自然语言交互**：用聊天方式找职位，例如“找北京 15K 以上、经验不限的 Agent 岗位”。
+- 🧠 **RAG 语义检索**：本地哈希向量索引职位库，支持“相关岗位、类似方向”等模糊语义召回，无需外部 Embedding API。
+- 🎓 **校招官网模块**：独立管理公司校招/内推官网入口，仅放行经过官方域名验证的链接，遵循“宁可找不到，也不能跳错”原则。
 - 🔍 **多平台职位聚合**：支持 BOSS 直聘、智联招聘、前程无忧、实习僧等平台登录与职位抓取。
 - 💾 **本地数据持久化**：职位、点击记录、会话、求职偏好全部保存在本地 SQLite。
 - 🛡️ **人工确认机制**：抓取属于有副作用操作，Agent 只创建确认卡片，用户确认后才执行。
@@ -37,17 +39,19 @@
 
 ## 功能概览
 
-- 使用自然语言筛选职位。
+- 使用自然语言筛选职位，支持精确关键词与 RAG 语义检索两种模式。
 - LangGraph 驱动模型与工具循环，并保存多轮会话。
 - 聊天结果直接展示职位、公司、薪资、城市和官方链接卡片。
 - 查询职位库统计、缺失薪资、缺失公司和平台登录状态。
 - 保存关键词、城市、最低薪资和平台等求职偏好。
 - 支持 BOSS 直聘、智联招聘、前程无忧和实习僧登录/抓取适配。
-- 自动保存职位到本地 SQLite 数据库。
+- 自动保存职位到本地 SQLite 数据库，并增量构建语义索引（`job_embeddings`）。
 - 支持按平台、关键词、城市、薪资状态、公司名状态、查看状态筛选职位库。
 - 记录点击过的职位，区分已查看和未查看。
 - 解码 BOSS 直聘薪资中的私有字体数字，例如 `-K·薪` 会显示为 `11-20K·14薪`。
-- 提供数据概览和查看记录页面。
+- 校招官网模块：展示、搜索、添加、编辑、删除公司校招/内推官网入口，区分“系统已验证”与“用户已确认”两种可信来源。
+- Agent 可通过“校招官网发现”工具返回已验证入口，无法验证时明确返回未找到，绝不提供未经验证的跳转链接。
+- 提供数据概览、查看记录和校招官网管理页面。
 
 ## 技术栈
 
@@ -55,6 +59,7 @@
 - Agent：LangChain 1.x、LangGraph 1.x、结构化工具调用、SSE 流式输出
 - 模型：OpenAI，或支持工具调用的 OpenAI-compatible API
 - 后端：Express、TypeScript、Zod、better-sqlite3
+- 检索：本地哈希词袋向量（512 维）+ 余弦相似度，同义词扩展，无需外部 Embedding 服务
 - 浏览器控制：Chrome CDP
 - 数据库：SQLite
 
@@ -63,18 +68,19 @@
 ```text
 .
 ├── client/                 # React 前端
-│   ├── src/pages/          # 页面：职位广场、平台管理、简历管理、Agent 聊天等
+│   ├── src/pages/          # 页面：职位广场、平台管理、简历管理、校招官网、Agent 聊天等
 │   ├── src/services/       # API 请求封装
 │   ├── src/store/          # Zustand 状态管理
 │   └── src/utils/          # 前端显示清洗与薪资解码
 ├── server/                 # Express 后端
 │   ├── src/agent/          # LangGraph Agent、工具、提示词、会话仓储
 │   ├── src/crawlers/       # Chrome/CDP 与 BOSS 抓取逻辑
-│   ├── src/routes/         # API 路由
-│   ├── src/services/       # REST 与 Agent 共用的职位业务服务
+│   ├── src/routes/         # API 路由（含校招官网 campusSites.ts）
+│   ├── src/services/       # 职位业务、RAG 语义检索、校招官网服务
 │   ├── src/database.ts     # SQLite 表结构与种子数据
 │   └── src/salaryCodec.ts  # BOSS 薪资私有字体数字解码
 ├── server/data/            # 本地数据库、Chrome profile、登录态、模型配置，已被 .gitignore 忽略
+├── campus-recruitment-requirements.md  # 校招官网模块需求文档
 ├── package.json            # 根目录脚本
 └── README.md
 ```
@@ -199,6 +205,8 @@ server/data/app.db
 
 - `jobs`：职位库，保存平台、职位名、公司名、薪资、地点、经验、学历、URL、抓取时间等。
 - `job_clicks`：点击记录，用于标记已查看职位。
+- `job_embeddings`：RAG 语义索引，按职位分块存储 512 维哈希向量与原始文本。
+- `campus_sites`：校招官网库，保存公司名、官网链接、验证状态、验证证据、来源类型（手动/Agent）等。
 - `platform_accounts`：平台账号状态。
 - `resumes`：简历数据。
 - `delivery_settings`：投递设置。
@@ -284,6 +292,14 @@ DELETE /api/resumes/:id
 GET    /api/delivery/settings
 PUT    /api/delivery/settings
 GET    /api/delivery/records
+
+GET    /api/campus-sites
+GET    /api/campus-sites/stats
+GET    /api/campus-sites/:id
+POST   /api/campus-sites
+POST   /api/campus-sites/discover
+PUT    /api/campus-sites/:id
+DELETE /api/campus-sites/:id
 ```
 
 ## 查看数据库
@@ -400,9 +416,9 @@ server/data/chrome-profile-boss/
 
 - 增加详情页补抓，用于补全缺失薪资、地点和公司信息。
 - 增加 Agent 候选清单、隐藏和不感兴趣标记。
-- 增加薪资区间结构化字段，支持按数值排序和筛选。
 - 增加导出 CSV / Excel。
 - 持续维护智联招聘、前程无忧、实习僧等平台适配。
+- 扩充校招官网可信注册表，覆盖更多公司的官方校招入口。
 - 增加 LangSmith 可观测性、工具耗时和失败原因统计。
 
 ## 免责声明
