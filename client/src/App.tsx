@@ -7,6 +7,7 @@ import PlatformManagement from './pages/PlatformManagement';
 import DeliverySettings from './pages/DeliverySettings';
 import DeliveryHistory from './pages/DeliveryHistory';
 import AgentWorkspace from './pages/AgentWorkspace';
+import CampusSites from './pages/CampusSites';
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
           <Route path="/" element={<AgentWorkspace />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/jobs" element={<JobSquare />} />
+          <Route path="/campus-sites" element={<CampusSites />} />
           <Route path="/resume" element={<ResumeManagement />} />
           <Route path="/platforms" element={<PlatformManagement />} />
           <Route path="/settings" element={<DeliverySettings />} />

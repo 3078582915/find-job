@@ -24,6 +24,7 @@ export default function JobSquare() {
   const [filterPlatform, setFilterPlatform] = useState('all');
   const [filterKeyword, setFilterKeyword] = useState('');
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
+  const [searchMode, setSearchMode] = useState<'exact' | 'semantic'>('exact');
   const [filterCity, setFilterCity] = useState('all');
   const [salaryStatus, setSalaryStatus] = useState('all');
   const [companyStatus, setCompanyStatus] = useState('all');
@@ -54,6 +55,7 @@ export default function JobSquare() {
     companyStatus,
     clickStatus,
     crawledDate,
+    semantic: searchMode === 'semantic' && debouncedKeyword ? '1' : undefined,
   });
 
   const formatCrawlError = (message?: string) => {
@@ -81,7 +83,7 @@ export default function JobSquare() {
 
   useEffect(() => {
     loadCurrentJobs();
-  }, [page, filterPlatform, debouncedKeyword, filterCity, salaryStatus, companyStatus, clickStatus, crawledDate]);
+  }, [page, filterPlatform, debouncedKeyword, searchMode, filterCity, salaryStatus, companyStatus, clickStatus, crawledDate]);
 
   useEffect(() => {
     const next = searchParams.get('crawledDate') || 'all';
@@ -349,6 +351,22 @@ export default function JobSquare() {
           placeholder="搜索职位/公司"
           className="px-3 py-2 border border-[#E1E8ED] rounded-lg bg-[#F5F7FA] text-sm w-[200px] focus:outline-none focus:border-accent"
         />
+        <div className="inline-flex rounded-lg border border-[#E1E8ED] bg-[#F5F7FA] p-0.5 text-sm">
+          <button
+            type="button"
+            onClick={() => { setSearchMode('exact'); setPage(1); }}
+            className={`rounded-md px-3 py-1.5 ${searchMode === 'exact' ? 'bg-white text-primary shadow-sm' : 'text-[#7F8C8D]'}`}
+          >
+            精确
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSearchMode('semantic'); setPage(1); }}
+            className={`rounded-md px-3 py-1.5 ${searchMode === 'semantic' ? 'bg-white text-primary shadow-sm' : 'text-[#7F8C8D]'}`}
+          >
+            RAG语义
+          </button>
+        </div>
         <select
           value={filterCity}
           onChange={(e) => { setFilterCity(e.target.value); setPage(1); }}
@@ -499,6 +517,7 @@ export default function JobSquare() {
                     {education && <span className="bg-[#F5F7FA] px-2 py-0.5 rounded">{education}</span>}
                     {companySize && <span className="bg-[#F5F7FA] px-2 py-0.5 rounded">{companySize}</span>}
                     {companyIndustry && <span className="bg-[#F5F7FA] px-2 py-0.5 rounded">{companyIndustry}</span>}
+                    {job.rag_reason && <span className="bg-[#F4FAFF] px-2 py-0.5 rounded text-[#3E6D8E]">{job.rag_reason}</span>}
                   </div>
                 </div>
 

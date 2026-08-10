@@ -49,6 +49,7 @@ interface AppState {
     clickStatus?: string;
     unclicked?: string;
     crawledDate?: string;
+    semantic?: string;
   }) => Promise<void>;
   crawlJobs: (data: { platform: string; query: string; city?: string; pages?: number }) => Promise<CrawlResult>;
   doClickJob: (id: string) => Promise<{ url: string; alreadyClicked: boolean }>;

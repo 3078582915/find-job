@@ -4,6 +4,7 @@ import { crawlJobsByPlatform, type CrawledJob } from '../crawlers';
 import { decodeBossPrivateText } from '../salaryCodec';
 import { isSupportedPlatform } from '../platformRegistry';
 import { v4 as uuidv4 } from '../utils';
+import { upsertRagIndexForJobIds } from './ragService';
 
 export interface CrawlAndStoreInput {
   platform: string;
@@ -75,6 +76,8 @@ export function toAgentJobCard(job: any) {
     url: job.job_url,
     clicked: Boolean(job.clicked),
     crawledAt: job.crawled_at,
+    relevanceScore: typeof job.rag_score === 'number' ? job.rag_score : undefined,
+    matchReason: job.rag_reason,
   };
 }
 
@@ -126,6 +129,7 @@ export async function crawlAndStoreJobs(input: CrawlAndStoreInput): Promise<Craw
 
   let inserted = 0;
   let duplicated = 0;
+  const hashes: string[] = [];
   const findExistingJob = db.prepare('SELECT id FROM jobs WHERE job_hash = ?');
   const insertJob = db.prepare(`
     INSERT INTO jobs (id, platform, job_id, title, company_name, salary, location, experience, education, company_size, company_industry, job_url, tags, job_hash, crawled_at)
@@ -147,6 +151,7 @@ export async function crawlAndStoreJobs(input: CrawlAndStoreInput): Promise<Craw
   const persist = db.transaction((jobs: CrawledJob[]) => {
     for (const job of jobs) {
       const hash = crypto.createHash('md5').update(`${job.platform}:${job.job_id}`).digest('hex');
+      hashes.push(hash);
       const existed = Boolean(findExistingJob.get(hash));
       insertJob.run(
         uuidv4(), job.platform, job.job_id, job.title, job.company_name,
@@ -159,6 +164,13 @@ export async function crawlAndStoreJobs(input: CrawlAndStoreInput): Promise<Craw
     }
   });
   persist(result.jobs);
+  if (hashes.length) {
+    const placeholders = hashes.map(() => '?').join(',');
+    const indexedIds = db.prepare(`SELECT id FROM jobs WHERE job_hash IN (${placeholders})`)
+      .all(...hashes)
+      .map((row: any) => row.id);
+    upsertRagIndexForJobIds(indexedIds);
+  }
 
   return {
     success: true,

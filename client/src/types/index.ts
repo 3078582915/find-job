@@ -50,6 +50,8 @@ export interface Job {
   status: string;
   crawled_at: string;
   clicked: number;
+  rag_score?: number;
+  rag_reason?: string;
 }
 
 export interface JobsResponse {
@@ -208,6 +210,63 @@ export interface AgentJobCard {
   url: string;
   clicked: boolean;
   crawledAt: string;
+  relevanceScore?: number;
+  matchReason?: string;
+}
+
+// ========== 校招官网 ==========
+export type CampusVerificationStatus = 'verified' | 'user_confirmed' | 'unverified' | 'rejected';
+export type CampusVerificationMethod = 'official_domain' | 'official_referral' | 'manual' | null;
+export type CampusSiteKind = 'official_site' | 'referral_link' | 'aggregated_reference';
+
+export interface CampusSite {
+  id: string;
+  company_name: string;
+  site_name: string | null;
+  official_url: string;
+  domain: string;
+  source_type: 'manual' | 'agent';
+  source_query: string | null;
+  confidence: number;
+  verification_status: CampusVerificationStatus;
+  verification_method: CampusVerificationMethod;
+  verification_evidence: string | null;
+  site_kind: CampusSiteKind;
+  status: 'active' | 'inactive';
+  tags: string | null;
+  notes: string | null;
+  last_checked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CampusSiteStats {
+  total: number;
+  agent: number;
+  manual: number;
+  verified: number;
+  invalid: number;
+}
+
+export interface CampusSitesResponse {
+  total: number;
+  page: number;
+  size: number;
+  records: CampusSite[];
+  stats: CampusSiteStats;
+}
+
+export interface AgentCampusSiteCard {
+  companyName: string;
+  siteName: string;
+  url: string;
+  domain: string;
+  confidence: number;
+  verificationStatus: 'verified' | 'user_confirmed';
+  verificationMethod: 'official_domain' | 'official_referral' | 'manual';
+  evidenceUrls: string[];
+  siteKind: CampusSiteKind;
+  reason: string;
 }
 
 export interface AgentPendingAction {
@@ -221,8 +280,9 @@ export interface AgentPendingAction {
 }
 
 export interface AgentArtifact {
-  kind: 'job_list' | 'statistics' | 'platform_status' | 'preferences' | 'confirmation' | 'crawl_result' | string;
+  kind: 'job_list' | 'campus_sites' | 'statistics' | 'platform_status' | 'preferences' | 'confirmation' | 'crawl_result' | string;
   jobs?: AgentJobCard[];
+  campusSites?: AgentCampusSiteCard[];
   conditions?: string;
   statistics?: Record<string, any>;
   platforms?: Array<{ name: string; label: string; loggedIn: boolean; requiresLoginForCrawl: boolean }>;

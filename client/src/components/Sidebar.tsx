@@ -5,6 +5,7 @@ import {
   Bot,
   BriefcaseBusiness,
   History,
+  GraduationCap,
   Link2,
   Menu,
   X,
@@ -13,6 +14,7 @@ import {
 const navItems = [
   { path: '/', label: '求职 Agent', icon: Bot },
   { path: '/jobs', label: '职位广场', icon: BriefcaseBusiness },
+  { path: '/campus-sites', label: '校招官网', icon: GraduationCap },
   { path: '/platforms', label: '平台管理', icon: Link2 },
   { path: '/history', label: '查看记录', icon: History },
   { path: '/dashboard', label: '数据概览', icon: BarChart3 },

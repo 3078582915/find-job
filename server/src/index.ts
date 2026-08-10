@@ -7,6 +7,7 @@ import platformsRouter from './routes/platforms';
 import deliveryRouter from './routes/delivery';
 import jobsRouter from './routes/jobs';
 import agentRouter from './routes/agent';
+import campusSitesRouter from './routes/campusSites';
 
 const app = express();
 const PORT = 3001;
@@ -36,6 +37,7 @@ app.use('/api', resumesRouter);
 app.use('/api', platformsRouter);
 app.use('/api', deliveryRouter);
 app.use('/api', jobsRouter);
+app.use('/api', campusSitesRouter);
 app.use('/api', agentRouter);
 
 app.get('/api/health', (_req, res) => {

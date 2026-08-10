@@ -90,11 +90,49 @@ db.exec(`
     FOREIGN KEY (job_id) REFERENCES jobs(id)
   );
 
+  CREATE TABLE IF NOT EXISTS job_embeddings (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL DEFAULT 0,
+    content TEXT NOT NULL,
+    embedding TEXT NOT NULL,
+    text_hash TEXT NOT NULL,
+    embedding_model TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+    UNIQUE(job_id, chunk_index)
+  );
+
+  CREATE TABLE IF NOT EXISTS campus_sites (
+    id TEXT PRIMARY KEY,
+    company_name TEXT NOT NULL,
+    site_name TEXT,
+    official_url TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'manual',
+    source_query TEXT,
+    confidence INTEGER NOT NULL DEFAULT 100,
+    verification_status TEXT NOT NULL DEFAULT 'user_confirmed',
+    verification_method TEXT,
+    verification_evidence TEXT,
+    site_kind TEXT NOT NULL DEFAULT 'official_site',
+    status TEXT NOT NULL DEFAULT 'active',
+    tags TEXT,
+    notes TEXT,
+    last_checked_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE INDEX IF NOT EXISTS idx_jobs_platform ON jobs(platform);
   CREATE INDEX IF NOT EXISTS idx_jobs_hash ON jobs(job_hash);
   CREATE INDEX IF NOT EXISTS idx_jobs_crawled ON jobs(crawled_at);
   CREATE INDEX IF NOT EXISTS idx_job_clicks_user ON job_clicks(user_id);
   CREATE INDEX IF NOT EXISTS idx_job_clicks_date ON job_clicks(clicked_at);
+  CREATE INDEX IF NOT EXISTS idx_job_embeddings_job ON job_embeddings(job_id);
+  CREATE INDEX IF NOT EXISTS idx_campus_sites_company ON campus_sites(company_name);
+  CREATE INDEX IF NOT EXISTS idx_campus_sites_domain ON campus_sites(domain);
+  CREATE INDEX IF NOT EXISTS idx_campus_sites_verification ON campus_sites(verification_status, status);
 
   CREATE TABLE IF NOT EXISTS agent_conversations (
     id TEXT PRIMARY KEY,
@@ -153,6 +191,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_agent_messages_conversation ON agent_messages(conversation_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_agent_pending_conversation ON agent_pending_actions(conversation_id, status);
 `);
+
+const campusSiteColumns = db.prepare('PRAGMA table_info(campus_sites)').all() as Array<{ name: string }>;
+if (!campusSiteColumns.some((column) => column.name === 'site_kind')) {
+  db.exec("ALTER TABLE campus_sites ADD COLUMN site_kind TEXT NOT NULL DEFAULT 'official_site'");
+}
 
 const legacyLagouAccount = db.prepare(
   "SELECT id FROM platform_accounts WHERE platform_name = 'lagou' LIMIT 1"

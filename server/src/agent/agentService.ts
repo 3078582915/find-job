@@ -43,11 +43,13 @@ export function getAgentStatus() {
     provider: config.provider,
     framework: 'LangChain + LangGraph',
     capabilities: [
+      'RAG 语义职位检索',
       '职位自然语言筛选',
       '职位库统计',
       '平台状态检查',
       '求职偏好记忆',
       '人工确认后抓取',
+      '校招官网查询与官方入口验证',
     ],
   };
 }
@@ -103,7 +105,7 @@ export function normalizeAgentError(error: unknown) {
   }
 
   if (/404|model.*not.*found|invalid.*model/i.test(message)) {
-    return new AgentConfigurationError(`模型名称不可用：${config.model}。请在模型设置里改成服务商支持的模型名称，例如 DeepSeek 可先尝试 deepseek-chat。`);
+    return new AgentConfigurationError(`模型名称不可用：${config.model}。请在模型设置里改成服务商支持的模型名称，例如 DeepSeek 可先尝试 deepseek-v4-flash。`);
   }
 
   return error instanceof Error ? error : new Error(message || 'Agent 运行失败');
@@ -169,6 +171,8 @@ function artifactKey(artifact: AgentArtifact) {
   if (action?.id) return `${artifact.kind}:${action.id}`;
   const jobs = artifact.jobs as any[] | undefined;
   if (jobs?.length) return `${artifact.kind}:${jobs.map((job) => job.id).join(',')}`;
+  const campusSites = artifact.campusSites as any[] | undefined;
+  if (campusSites?.length) return `${artifact.kind}:${campusSites.map((site) => site.url).join(',')}`;
   return JSON.stringify(artifact);
 }
 

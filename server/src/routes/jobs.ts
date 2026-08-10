@@ -5,6 +5,12 @@ import { loginInteractive, hasLoginState, validateLoginState } from '../crawlers
 import { decodeBossPrivateText } from '../salaryCodec';
 import { getPlatformConfig, isSupportedPlatform } from '../platformRegistry';
 import { crawlAndStoreJobs } from '../services/jobService';
+import {
+  deleteRagIndexForJobIds,
+  getRagIndexStats,
+  reindexAllJobEmbeddings,
+  semanticSearchJobs,
+} from '../services/ragService';
 
 const router = Router();
 const DEMO_USER_ID = 'u001';
@@ -33,6 +39,7 @@ function normalizeIds(value: unknown, maxCount = 100): string[] {
 const deleteJobsByIds = db.transaction((ids: string[]) => {
   if (ids.length === 0) return 0;
   const placeholders = ids.map(() => '?').join(',');
+  deleteRagIndexForJobIds(ids);
   db.prepare(`DELETE FROM job_clicks WHERE job_id IN (${placeholders})`).run(...ids);
   const result = db.prepare(`DELETE FROM jobs WHERE id IN (${placeholders})`).run(...ids);
   return result.changes;
@@ -74,6 +81,32 @@ router.get('/jobs', (req, res) => {
   const clickStatus = normalizeText(req.query.clickStatus, 20);
   const crawledDate = normalizeText(req.query.crawledDate, 20);
   const onlyUnclicked = req.query.unclicked === '1';
+  const semantic = req.query.semantic === '1' || req.query.semantic === 'true';
+
+  if (semantic && keyword) {
+    const topK = Math.min(120, Math.max(size * page, size * 4));
+    const matches = semanticSearchJobs({
+      query: keyword,
+      platform,
+      city,
+      salaryStatus: salaryStatus === 'present' || salaryStatus === 'missing' ? salaryStatus : 'all',
+      companyStatus: companyStatus === 'present' || companyStatus === 'missing' ? companyStatus : 'all',
+      onlyUnclicked: clickStatus === 'unclicked' || onlyUnclicked,
+      onlyClicked: clickStatus === 'clicked',
+      limit: topK,
+      topK,
+      userId: DEMO_USER_ID,
+    });
+    const offset = (page - 1) * size;
+    return res.json({
+      total: matches.length,
+      page,
+      size,
+      records: matches.slice(offset, offset + size),
+      semantic: true,
+      rag: getRagIndexStats(),
+    });
+  }
 
   let where = 'WHERE 1=1';
   const params: any[] = [];
@@ -177,6 +210,34 @@ router.post('/jobs/bulk-delete', (req, res) => {
   res.json({ success: true, deleted });
 });
 
+router.get('/jobs/rag/status', (_req, res) => {
+  res.json(getRagIndexStats());
+});
+
+router.post('/jobs/rag/reindex', (_req, res) => {
+  const result = reindexAllJobEmbeddings();
+  res.json({ success: true, ...result, stats: getRagIndexStats() });
+});
+
+router.get('/jobs/rag/search', (req, res) => {
+  const query = normalizeText(req.query.query, 160);
+  if (!query) return res.status(400).json({ error: '请提供语义检索 query' });
+  const limit = toIntInRange(req.query.limit, 10, 1, 50);
+  const jobs = semanticSearchJobs({
+    query,
+    city: normalizeText(req.query.city, 20),
+    platform: normalizeText(req.query.platform, 20),
+    onlyUnclicked: req.query.unclicked === '1',
+    salaryStatus: normalizeText(req.query.salaryStatus, 20) as any,
+    companyStatus: normalizeText(req.query.companyStatus, 20) as any,
+    minSalaryK: Number(req.query.minSalaryK || 0),
+    limit,
+    topK: toIntInRange(req.query.topK, Math.max(limit * 4, 20), limit, 120),
+    userId: DEMO_USER_ID,
+  });
+  res.json({ total: jobs.length, records: jobs, rag: getRagIndexStats() });
+});
+
 // 职位统计
 router.get('/jobs/statistics', (_req, res) => {
   const totalJobs = (db.prepare('SELECT COUNT(*) as c FROM jobs').get() as any).c;
@@ -230,6 +291,7 @@ router.get('/jobs/library-summary', (_req, res) => {
     clicked,
     unclicked: totalJobs - clicked,
     databasePath: 'server/data/app.db',
+    rag: getRagIndexStats(),
   });
 });
 

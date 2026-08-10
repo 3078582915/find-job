@@ -17,6 +17,7 @@ import ModelSettingsModal from '../components/agent/ModelSettingsModal';
 import * as api from '../services/api';
 import type {
   AgentArtifact,
+  AgentCampusSiteCard,
   AgentConversation,
   AgentJobCard,
   AgentMessage,
@@ -24,13 +25,14 @@ import type {
 } from '../types';
 
 const STARTERS = [
-  '帮我找北京 15K 以上的 Agent 开发岗位',
+  '用 RAG 帮我找北京 15K 以上的 Agent 开发岗位',
   '统计职位库并检查数据质量',
   '找出薪资缺失的职位',
   '检查所有平台的登录状态',
 ];
 
 const TOOL_LABELS: Record<string, string> = {
+  semantic_search_jobs: '正在进行 RAG 语义检索',
   search_jobs: '正在筛选职位库',
   get_job_detail: '正在读取职位详情',
   get_job_statistics: '正在统计职位库',
@@ -39,6 +41,10 @@ const TOOL_LABELS: Record<string, string> = {
   save_job_preferences: '正在保存求职偏好',
   prepare_job_crawl: '正在准备抓取任务',
   find_data_issues: '正在检查数据质量',
+  search_campus_sites: '正在查询校招官网库',
+  discover_campus_site: '正在验证校招官网入口',
+  save_campus_site: '正在保存校招官网',
+  save_user_confirmed_campus_sites: '正在整理用户提供的校招链接',
 };
 
 function nowString() {
@@ -308,6 +314,25 @@ export default function AgentWorkspace() {
     void api.clickJob(job.id).catch(() => undefined);
   };
 
+  const saveCampusSite = async (site: AgentCampusSiteCard) => {
+    try {
+      await api.createCampusSite({
+        companyName: site.companyName,
+        siteName: site.siteName,
+        officialUrl: site.url,
+        sourceType: 'agent',
+        confidence: site.confidence,
+        verificationStatus: site.verificationStatus === 'verified' ? 'verified' : undefined,
+        verificationMethod: site.verificationMethod === 'manual' ? undefined : site.verificationMethod,
+        verificationEvidence: site.evidenceUrls,
+        siteKind: site.siteKind,
+      });
+      setError('校招官网已保存到官网库');
+    } catch (reason: any) {
+      setError(reason?.response?.data?.error || reason.message || '保存校招官网失败');
+    }
+  };
+
   if (loading) {
     return <div className="flex h-[70vh] items-center justify-center"><Loader2 className="animate-spin text-accent" /></div>;
   }
@@ -445,6 +470,7 @@ export default function AgentWorkspace() {
                           onConfirm={confirmAction}
                           onCancel={cancelAction}
                           onOpenJob={recordOpenJob}
+                          onSaveCampusSite={saveCampusSite}
                         />
                       )}
                     </div>
@@ -470,6 +496,7 @@ export default function AgentWorkspace() {
                 onConfirm={confirmAction}
                 onCancel={cancelAction}
                 onOpenJob={recordOpenJob}
+                onSaveCampusSite={saveCampusSite}
               />
             </div>
           </div>

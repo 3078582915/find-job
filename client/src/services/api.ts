@@ -2,6 +2,7 @@ import axios from 'axios';
 import type {
   Statistics, Resume, DeliverySetting, DeliveryRecordsResponse, Platform,
   JobsResponse, CrawlResult,
+  CampusSite, CampusSitesResponse,
   AgentStatus, AgentConversation, AgentMessage, AgentArtifact,
   AgentModelConfig, AgentConnectionTest,
 } from '../types';
@@ -66,6 +67,7 @@ export const fetchJobs = (params: {
   clickStatus?: string;
   unclicked?: string;
   crawledDate?: string;
+  semantic?: string;
 }) =>
   http.get<JobsResponse>('/jobs', { params }).then(r => r.data);
 
@@ -77,6 +79,53 @@ export const deleteJob = (id: string) =>
 
 export const deleteJobs = (ids: string[]) =>
   http.post<{ success: boolean; deleted: number }>('/jobs/bulk-delete', { ids }).then(r => r.data);
+
+// ========== 校招官网 ==========
+export const fetchCampusSites = (params?: {
+  page?: number;
+  size?: number;
+  keyword?: string;
+  sourceType?: string;
+  verificationStatus?: string;
+  status?: string;
+}) => http.get<CampusSitesResponse>('/campus-sites', { params }).then(r => r.data);
+
+export const createCampusSite = (data: {
+  companyName: string;
+  siteName?: string;
+  officialUrl: string;
+  sourceType?: 'manual' | 'agent';
+  sourceQuery?: string;
+  confidence?: number;
+  verificationStatus?: 'verified' | 'user_confirmed';
+  verificationMethod?: 'official_domain' | 'official_referral' | 'manual';
+  verificationEvidence?: string[];
+  siteKind?: 'official_site' | 'referral_link' | 'aggregated_reference';
+  tags?: string[];
+  notes?: string;
+}) => http.post<CampusSite>('/campus-sites', data).then(r => r.data);
+
+export const updateCampusSite = (id: string, data: {
+  companyName: string;
+  siteName?: string;
+  officialUrl: string;
+  siteKind?: 'official_site' | 'referral_link' | 'aggregated_reference';
+  tags?: string[];
+  notes?: string;
+  status?: 'active' | 'inactive';
+}) => http.put<CampusSite>(`/campus-sites/${id}`, data).then(r => r.data);
+
+export const deleteCampusSite = (id: string) =>
+  http.delete<{ success: boolean; deleted: number }>(`/campus-sites/${id}`).then(r => r.data);
+
+export const discoverCampusSites = (companyName: string) =>
+  http.post('/campus-sites/discover', { companyName }).then(r => r.data);
+
+export const fetchRagStatus = () =>
+  http.get('/jobs/rag/status').then(r => r.data);
+
+export const reindexRagJobs = () =>
+  http.post('/jobs/rag/reindex').then(r => r.data);
 
 // ========== Agent ==========
 export const fetchAgentStatus = () =>

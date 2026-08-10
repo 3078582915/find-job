@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>多平台找工作助手 - Demo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .page { display: none; }
+    .page.active { display: block; animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .nav-item.active { background: rgba(255,255,255,0.12); border-left: 3px solid #FF8C5A; }
+    .chat-bubble { max-width: 80%; padding: 12px 16px; border-radius: 16px; margin-bottom: 12px; line-height: 1.6; }
+    .chat-bubble.user { background: #3B82F6; color: white; margin-left: auto; border-bottom-right-radius: 4px; }
+    .chat-bubble.bot { background: #F3F4F6; color: #1F2937; margin-right: auto; border-bottom-left-radius: 4px; }
+    .typing::after { content: '▋'; animation: blink 1s infinite; }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+    .job-card { transition: all 0.2s; }
+    .job-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.08); }
+    .tag { @apply px-2 py-0.5 rounded text-xs font-medium; }
+    .salary-decoded { text-decoration: line-through; color: #9CA3AF; font-size: 0.85em; margin-right: 6px; }
+  </style>
+</head>
+<body class="bg-gray-50 h-screen overflow-hidden">
+  <div class="flex h-full">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-[#1E2A3A] text-white flex flex-col shadow-xl">
+      <div class="p-6 flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-[#FF8C5A] flex items-center justify-center text-white font-bold text-lg">找</div>
+        <div>
+          <h1 class="font-semibold text-lg leading-tight">找工作助手</h1>
+          <p class="text-xs text-gray-400">AI 求职 Agent Demo</p>
+        </div>
+      </div>
+
+      <nav class="flex-1 px-3 space-y-1">
+        <button onclick="showPage('dashboard')" id="nav-dashboard" class="nav-item active w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left hover:bg-white/10 transition">
+          <span class="text-xl">📊</span>
+          <span>仪表盘</span>
+        </button>
+        <button onclick="showPage('agent')" id="nav-agent" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left hover:bg-white/10 transition">
+          <span class="text-xl">🤖</span>
+          <span>AI 求职 Agent</span>
+        </button>
+        <button onclick="showPage('jobs')" id="nav-jobs" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left hover:bg-white/10 transition">
+          <span class="text-xl">🔍</span>
+          <span>职位广场</span>
+        </button>
+        <button onclick="showPage('platforms')" id="nav-platforms" class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left hover:bg-white/10 transition">
+          <span class="text-xl">🔗</span>
+          <span>平台管理</span>
+        </button>
+      </nav>
+
+      <div class="p-4 text-xs text-gray-400 border-t border-white/10">
+        <p>⚠️ 本 Demo 仅供展示</p>
+        <p>真实抓取需要本地后端服务</p>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 overflow-y-auto">
+      <!-- Dashboard -->
+      <section id="dashboard" class="page active p-8">
+        <div class="mb-8">
+          <h2 class="text-[28px] font-semibold text-[#2C3E50]">仪表盘</h2>
+          <p class="text-sm text-[#7F8C8D] mt-2">多平台职位聚合数据概览</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+          <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+            <div class="text-3xl font-bold text-[#3B82F6]">142</div>
+            <div class="text-sm text-gray-500 mt-1">总职位数</div>
+          </div>
+          <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+            <div class="text-3xl font-bold text-[#FF8C5A]">38</div>
+            <div class="text-sm text-gray-500 mt-1">今日新增</div>
+          </div>
+          <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+            <div class="text-3xl font-bold text-[#10B981]">89</div>
+            <div class="text-sm text-gray-500 mt-1">未查看职位</div>
+          </div>
+          <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+            <div class="text-3xl font-bold text-[#8B5CF6]">12</div>
+            <div class="text-sm text-gray-500 mt-1">已查看</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <h3 class="font-semibold text-lg mb-4">平台状态</h3>
+            <div class="space-y-3">
+              <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <div class="flex items-center gap-3">
+                  <div class="w-8 h-8 rounded bg-[#00BFB3] text-white flex items-center justify-center font-bold text-sm">B</div>
+                  <span>BOSS 直聘</span>
+                </div>
+                <span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">已登录</span>
+              </div>
+              <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div class="flex items-center gap-3">
+                  <div class="w-8 h-8 rounded bg-[#FF6A00] text-white flex items-center justify-center font-bold text-sm">智</div>
+                  <span>智联招聘</span>
+                </div>
+                <span class="px-2 py-1 bg-gray-200 text-gray-600 text-xs rounded-full">即将支持</span>
+              </div>
+              <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div class="flex items-center gap-3">
+                  <div class="w-8 h-8 rounded bg-[#1E2A3A] text-white flex items-center justify-center font-bold text-sm">51</div>
+                  <span>前程无忧</span>
+                </div>
+                <span class="px-2 py-1 bg-gray-200 text-gray-600 text-xs rounded-full">即将支持</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <h3 class="font-semibold text-lg mb-4">最近查看</h3>
+            <div class="space-y-3">
+              <div class="flex justify-between items-start p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
+                <div>
+                  <div class="font-medium">高级前端工程师</div>
+                  <div class="text-sm text-gray-500">某互联网大厂 · 北京</div>
+                </div>
+                <span class="text-[#FF8C5A] font-medium">25-40K</span>
+              </div>
+              <div class="flex justify-between items-start p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
+                <div>
+                  <div class="font-medium">AI Agent 开发工程师</div>
+                  <div class="text-sm text-gray-500">某 AI 初创 · 上海</div>
+                </div>
+                <span class="text-[#FF8C5A] font-medium">20-35K</span>
+              </div>
+              <div class="flex justify-between items-start p-3 hover:bg-gray-50 rounded-lg cursor-pointer">
+                <div>
+                  <div class="font-medium">全栈开发工程师</div>
+                  <div class="text-sm text-gray-500">某金融科技 · 深圳</div>
+                </div>
+                <span class="text-[#FF8C5A] font-medium">18-30K</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Agent -->
+      <section id="agent" class="page p-8 h-full">
+        <div class="mb-6">
+          <h2 class="text-[28px] font-semibold text-[#2C3E50]">AI 求职 Agent</h2>
+          <p class="text-sm text-[#7F8C8D] mt-2">用自然语言描述你的求职需求</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 h-[calc(100%-120px)] flex flex-col">
+          <div id="chat-messages" class="flex-1 overflow-y-auto p-6 space-y-2">
+            <div class="chat-bubble bot">
+              <p>你好 👋 我是你的求职助手。</p>
+              <p class="mt-2">你可以这样问我：</p>
+              <ul class="list-disc ml-5 mt-1 space-y-1 text-sm">
+                <li>"找北京 15K 以上、经验不限的测试开发岗位"</li>
+                <li>"统计一下当前职位库有多少未查看的职位"</li>
+                <li>"帮我抓取 3 页前端开发的职位"</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="border-t border-gray-100 p-4">
+            <div class="flex gap-2 mb-3">
+              <button onclick="quickAsk('找北京 15K 以上的测试开发岗位')" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-xs transition">找北京 15K 以上的测试开发岗位</button>
+              <button onclick="quickAsk('统计职位库')" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-xs transition">统计职位库</button>
+              <button onclick="quickAsk('抓取前端开发职位')" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-xs transition">抓取前端开发职位</button>
+            </div>
+            <div class="flex gap-3">
+              <input id="chat-input" type="text" placeholder="输入你的需求..." class="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#3B82F6]" onkeydown="if(event.key==='Enter') sendMessage()">
+              <button onclick="sendMessage()" class="px-6 py-3 bg-[#3B82F6] hover:bg-blue-600 text-white rounded-xl font-medium transition">发送</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Jobs -->
+      <section id="jobs" class="page p-8">
+        <div class="mb-6">
+          <h2 class="text-[28px] font-semibold text-[#2C3E50]">职位广场</h2>
+          <p class="text-sm text-[#7F8C8D] mt-2">聚合多平台职位，支持筛选和查看</p>
+        </div>
+
+        <!-- Filters -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+          <div class="flex flex-wrap gap-3">
+            <select id="filter-platform" onchange="renderJobs()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6]">
+              <option value="all">全部平台</option>
+              <option value="boss">BOSS 直聘</option>
+              <option value="zhilian">智联招聘</option>
+            </select>
+            <select id="filter-city" onchange="renderJobs()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6]">
+              <option value="all">全部城市</option>
+              <option value="北京">北京</option>
+              <option value="上海">上海</option>
+              <option value="深圳">深圳</option>
+              <option value="杭州">杭州</option>
+            </select>
+            <select id="filter-salary" onchange="renderJobs()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6]">
+              <option value="all">全部薪资</option>
+              <option value="present">有薪资</option>
+              <option value="missing">薪资缺失</option>
+            </select>
+            <select id="filter-click" onchange="renderJobs()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6]">
+              <option value="all">全部状态</option>
+              <option value="unclicked">未查看</option>
+              <option value="clicked">已查看</option>
+            </select>
+            <input id="filter-keyword" type="text" placeholder="关键词搜索..." oninput="renderJobs()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6]">
+          </div>
+        </div>
+
+        <!-- Job List -->
+        <div id="job-list" class="space-y-4">
+          <!-- JS will render -->
+        </div>
+
+        <div class="mt-6 flex justify-center gap-2">
+          <button class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:border-[#3B82F6] hover:text-[#3B82F6] transition">上一页</button>
+          <button class="px-4 py-2 bg-[#3B82F6] text-white rounded-lg text-sm">1</button>
+          <button class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:border-[#3B82F6] hover:text-[#3B82F6] transition">2</button>
+          <button class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:border-[#3B82F6] hover:text-[#3B82F6] transition">下一页</button>
+        </div>
+      </section>
+
+      <!-- Platforms -->
+      <section id="platforms" class="page p-8">
+        <div class="mb-6">
+          <h2 class="text-[28px] font-semibold text-[#2C3E50]">平台管理</h2>
+          <p class="text-sm text-[#7F8C8D] mt-2">登录招聘平台，授权职位抓取</p>
+        </div>
+
+        <div class="bg-amber-50 border border-amber-100 rounded-xl p-4 mb-6 text-sm text-amber-800">
+          <span class="font-medium">💡 使用说明：</span>本 Demo 仅展示界面。真实使用时需要在本地启动后端服务，并通过 Chrome 完成扫码登录。
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- BOSS -->
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <div class="flex items-start justify-between">
+              <div class="flex items-center gap-4">
+                <div class="w-14 h-14 rounded-xl bg-[#00BFB3] text-white flex items-center justify-center text-2xl font-bold">B</div>
+                <div>
+                  <h3 class="font-semibold text-lg">BOSS 直聘</h3>
+                  <p class="text-sm text-gray-500">扫码登录</p>
+                </div>
+              </div>
+              <span class="px-3 py-1 bg-green-100 text-green-700 text-xs rounded-full">已登录</span>
+            </div>
+            <div class="mt-6 flex gap-3">
+              <button onclick="alert('Demo 中不支持真实登录，请查看本地运行说明。')" class="flex-1 py-2 border border-[#00BFB3] text-[#00BFB3] rounded-lg text-sm hover:bg-[#00BFB3]/5 transition">重新登录</button>
+              <button onclick="alert('Demo 中不支持退出，请查看本地运行说明。')" class="flex-1 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm hover:border-red-300 hover:text-red-500 transition">退出登录</button>
+            </div>
+          </div>
+
+          <!-- Zhilian -->
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 opacity-75">
+            <div class="flex items-start justify-between">
+              <div class="flex items-center gap-4">
+                <div class="w-14 h-14 rounded-xl bg-[#FF6A00] text-white flex items-center justify-center text-2xl font-bold">智</div>
+                <div>
+                  <h3 class="font-semibold text-lg">智联招聘</h3>
+                  <p class="text-sm text-gray-500">账号密码登录</p>
+                </div>
+              </div>
+              <span class="px-3 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">即将支持</span>
+            </div>
+            <div class="mt-6">
+              <button disabled class="w-full py-2 bg-gray-100 text-gray-400 rounded-lg text-sm cursor-not-allowed">即将支持</button>
+            </div>
+          </div>
+
+          <!-- 51job -->
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 opacity-75">
+            <div class="flex items-start justify-between">
+              <div class="flex items-center gap-4">
+                <div class="w-14 h-14 rounded-xl bg-[#1E2A3A] text-white flex items-center justify-center text-xl font-bold">51</div>
+                <div>
+                  <h3 class="font-semibold text-lg">前程无忧</h3>
+                  <p class="text-sm text-gray-500">账号密码登录</p>
+                </div>
+              </div>
+              <span class="px-3 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">即将支持</span>
+            </div>
+            <div class="mt-6">
+              <button disabled class="w-full py-2 bg-gray-100 text-gray-400 rounded-lg text-sm cursor-not-allowed">即将支持</button>
+            </div>
+          </div>
+
+          <!-- Lagou -->
+          <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 opacity-75">
+            <div class="flex items-start justify-between">
+              <div class="flex items-center gap-4">
+                <div class="w-14 h-14 rounded-xl bg-[#00C2B3] text-white flex items-center justify-center text-2xl font-bold">拉</div>
+                <div>
+                  <h3 class="font-semibold text-lg">拉勾网</h3>
+                  <p class="text-sm text-gray-500">账号密码登录</p>
+                </div>
+              </div>
+              <span class="px-3 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">即将支持</span>
+            </div>
+            <div class="mt-6">
+              <button disabled class="w-full py-2 bg-gray-100 text-gray-400 rounded-lg text-sm cursor-not-allowed">即将支持</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // Mock job data
+    const jobs = [
+      { id: 1, title: '高级前端工程师', company: '某互联网大厂', salary: '25-40K·16薪', rawSalary: '-K·薪', city: '北京', exp: '3-5年', edu: '本科', platform: 'boss', clicked: false },
+      { id: 2, title: 'AI Agent 开发工程师', company: '某 AI 初创', salary: '20-35K·14薪', rawSalary: '-K·薪', city: '上海', exp: '1-3年', edu: '本科', platform: 'boss', clicked: false },
+      { id: 3, title: '测试开发工程师', company: '某金融科技公司', salary: '18-30K·13薪', rawSalary: '-K·薪', city: '深圳', exp: '3-5年', edu: '本科', platform: 'boss', clicked: true },
+      { id: 4, title: '全栈开发工程师', company: '某电商公司', salary: '22-35K', rawSalary: '-K', city: '杭州', exp: '3-5年', edu: '本科', platform: 'boss', clicked: false },
+      { id: 5, title: 'React 前端开发', company: '某 SaaS 企业', salary: '15-25K·14薪', rawSalary: '-K·薪', city: '北京', exp: '1-3年', edu: '本科', platform: 'boss', clicked: false },
+      { id: 6, title: 'Node.js 后端开发', company: '某游戏公司', salary: '20-30K', rawSalary: '-K', city: '上海', exp: '3-5年', edu: '本科', platform: 'boss', clicked: false },
+      { id: 7, title: '产品经理（AI 方向）', company: '某科技公司', salary: '面议', rawSalary: '面议', city: '深圳', exp: '3-5年', edu: '本科', platform: 'zhilian', clicked: false },
+      { id: 8, title: '数据分析师', company: '某零售企业', salary: '18-28K', rawSalary: '-K', city: '杭州', exp: '1-3年', edu: '本科', platform: 'zhilian', clicked: true },
+    ];
+
+    // Navigation
+    function showPage(pageId) {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.getElementById(pageId).classList.add('active');
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      document.getElementById('nav-' + pageId).classList.add('active');
+      if (pageId === 'jobs') renderJobs();
+    }
+
+    // Job rendering
+    function renderJobs() {
+      const platform = document.getElementById('filter-platform').value;
+      const city = document.getElementById('filter-city').value;
+      const salary = document.getElementById('filter-salary').value;
+      const click = document.getElementById('filter-click').value;
+      const keyword = document.getElementById('filter-keyword').value.toLowerCase();
+
+      let filtered = jobs.filter(job => {
+        if (platform !== 'all' && job.platform !== platform) return false;
+        if (city !== 'all' && job.city !== city) return false;
+        if (salary === 'present' && job.salary === '面议') return false;
+        if (salary === 'missing' && job.salary !== '面议') return false;
+        if (click === 'clicked' && !job.clicked) return false;
+        if (click === 'unclicked' && job.clicked) return false;
+        if (keyword && !job.title.toLowerCase().includes(keyword) && !job.company.toLowerCase().includes(keyword)) return false;
+        return true;
+      });
+
+      const list = document.getElementById('job-list');
+      if (filtered.length === 0) {
+        list.innerHTML = '<div class="text-center py-12 text-gray-500">暂无符合条件的职位</div>';
+        return;
+      }
+
+      list.innerHTML = filtered.map(job => `
+        <div class="job-card bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+          <div class="flex justify-between items-start">
+            <div>
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg ${job.platform === 'boss' ? 'bg-[#00BFB3]' : 'bg-[#FF6A00]'} text-white flex items-center justify-center font-bold text-sm">
+                  ${job.platform === 'boss' ? 'B' : '智'}
+                </div>
+                <div>
+                  <h3 class="font-semibold text-lg text-[#2C3E50]">${job.title}</h3>
+                  <p class="text-sm text-gray-500">${job.company} · ${job.city}</p>
+                </div>
+              </div>
+              <div class="flex gap-2 mt-3">
+                <span class="tag bg-blue-50 text-blue-600">${job.exp}</span>
+                <span class="tag bg-purple-50 text-purple-600">${job.edu}</span>
+                <span class="tag bg-gray-100 text-gray-600">${job.platform === 'boss' ? 'BOSS 直聘' : '智联招聘'}</span>
+                ${job.clicked ? '<span class="tag bg-green-50 text-green-600">已查看</span>' : '<span class="tag bg-orange-50 text-orange-600">未查看</span>'}
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-[#FF8C5A] font-bold text-lg">
+                ${job.rawSalary !== job.salary ? `<span class="salary-decoded">${job.rawSalary}</span>` : ''}${job.salary}
+              </div>
+              ${job.rawSalary !== job.salary ? '<div class="text-xs text-green-600 mt-1">✓ 已解码</div>' : ''}
+              <button onclick="clickJob(${job.id})" class="mt-3 px-4 py-2 bg-[#3B82F6] hover:bg-blue-600 text-white text-sm rounded-lg transition">去投递</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function clickJob(id) {
+      const job = jobs.find(j => j.id === id);
+      if (job) {
+        job.clicked = true;
+        renderJobs();
+        alert(`Demo：已记录查看「${job.title}」\n真实环境会跳转到：${job.platform === 'boss' ? 'BOSS 直聘' : '智联招聘'} 详情页`);
+      }
+    }
+
+    // Agent chat
+    function quickAsk(text) {
+      document.getElementById('chat-input').value = text;
+      sendMessage();
+    }
+
+    function sendMessage() {
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      addMessage(text, 'user');
+      input.value = '';
+
+      // Simulate typing and response
+      const botMsg = addMessage('', 'bot', true);
+      setTimeout(() => {
+        botMsg.classList.remove('typing');
+        botMsg.innerHTML = generateResponse(text);
+      }, 1200);
+    }
+
+    function addMessage(html, sender, typing = false) {
+      const container = document.getElementById('chat-messages');
+      const div = document.createElement('div');
+      div.className = `chat-bubble ${sender} ${typing ? 'typing' : ''}`;
+      div.innerHTML = html;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+      return div;
+    }
+
+    function generateResponse(text) {
+      const t = text.toLowerCase();
+      if (t.includes('北京') && t.includes('测试开发')) {
+        return `<p>已为你筛选出 <strong>3 个</strong> 符合条件的职位：</p>
+                <div class="mt-3 space-y-2">
+                  <div class="bg-white rounded-lg p-3 border border-gray-200">
+                    <div class="flex justify-between">
+                      <span class="font-medium">测试开发工程师</span>
+                      <span class="text-[#FF8C5A]">18-30K·13薪</span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1">某金融科技公司 · 北京 · 3-5年</div>
+                  </div>
+                  <div class="bg-white rounded-lg p-3 border border-gray-200">
+                    <div class="flex justify-between">
+                      <span class="font-medium">高级测试开发</span>
+                      <span class="text-[#FF8C5A]">25-40K·16薪</span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1">某互联网大厂 · 北京 · 5-10年</div>
+                  </div>
+                </div>
+                <p class="mt-3 text-sm">需要我帮你抓取更多吗？（抓取需要你在平台管理页先登录 BOSS 直聘）</p>`;
+      }
+      if (t.includes('统计')) {
+        return `<p>当前职位库统计如下：</p>
+                <ul class="list-disc ml-5 mt-2 space-y-1">
+                  <li>总职位数：<strong>142</strong></li>
+                  <li>未查看：<strong>89</strong></li>
+                  <li>已查看：<strong>12</strong></li>
+                  <li>薪资已解码：<strong>118</strong></li>
+                  <li>BOSS 直聘在线：<strong>已登录</strong></li>
+                </ul>`;
+      }
+      if (t.includes('抓取') || t.includes('爬取')) {
+        return `<p>我可以帮你抓取职位，但需要先确认：</p>
+                <ol class="list-decimal ml-5 mt-2 space-y-1">
+                  <li>你已在「平台管理」中登录 BOSS 直聘</li>
+                  <li>本次抓取建议使用小号/测试账号</li>
+                  <li>单次建议不超过 3 页，避免触发风控</li>
+                </ol>
+                <div class="mt-3 flex gap-2">
+                  <button onclick="alert('Demo 中不会真实抓取')" class="px-3 py-1.5 bg-[#3B82F6] text-white text-xs rounded-lg">确认抓取 3 页</button>
+                  <button class="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs rounded-lg">取消</button>
+                </div>`;
+      }
+      return `<p>我理解了你的需求：「${text}」</p>
+              <p class="mt-2">在完整版本中，我会调用本地职位库查询或抓取服务来帮你处理。你可以试试：</p>
+              <ul class="list-disc ml-5 mt-1 space-y-1 text-sm">
+                <li>"找北京 15K 以上的测试开发岗位"</li>
+                <li>"统计职位库"</li>
+                <li>"抓取前端开发职位"</li>
+              </ul>`;
+    }
+
+    // Init
+    renderJobs();
+  </script>
+</body>
+</html>

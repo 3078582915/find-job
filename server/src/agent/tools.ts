@@ -9,6 +9,14 @@ import {
   searchJobs,
   toAgentJobCard,
 } from '../services/jobService';
+import { getRagIndexStats, semanticSearchJobs } from '../services/ragService';
+import {
+  CampusSiteDuplicateError,
+  createCampusSite,
+  discoverCampusSites,
+  getVerifiedRegistryCandidate,
+  searchCampusSites,
+} from '../services/campusSiteService';
 import {
   createPendingAction,
   getPreferences,
@@ -25,6 +33,16 @@ function toolResult(summary: string, artifact?: Record<string, unknown>) {
   return JSON.stringify({ summary, artifact: artifact || null });
 }
 
+function evidenceUrls(value: string | null, fallback: string) {
+  if (!value) return [fallback];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [fallback];
+  } catch {
+    return [fallback];
+  }
+}
+
 export function createAgentTools(context: ToolContext) {
   const runLogged = async <T>(name: string, input: unknown, fn: () => T | Promise<T>) => {
     try {
@@ -37,6 +55,52 @@ export function createAgentTools(context: ToolContext) {
       throw error;
     }
   };
+
+  const semanticSearchJobsTool = tool(
+    async (input) => runLogged('semantic_search_jobs', input, () => {
+      const jobs = semanticSearchJobs({
+        query: input.query,
+        city: input.city,
+        platform: input.platform,
+        minSalaryK: input.minSalaryK,
+        onlyUnclicked: input.onlyUnclicked,
+        onlyClicked: input.onlyClicked,
+        salaryStatus: input.salaryStatus,
+        companyStatus: input.companyStatus,
+        limit: input.limit,
+        topK: input.topK,
+        userId: context.userId,
+      }).map(toAgentJobCard);
+      const stats = getRagIndexStats();
+      const conditions = [
+        `语义“${input.query}”`,
+        input.city && input.city !== '全国' && `城市“${input.city}”`,
+        input.platform && input.platform !== 'all' && `平台“${input.platform}”`,
+        input.minSalaryK && `最低月薪 ${input.minSalaryK}K`,
+        input.onlyUnclicked && '仅未查看',
+      ].filter(Boolean).join('、');
+      return toolResult(
+        `RAG 按${conditions}召回 ${jobs.length} 个职位。索引覆盖 ${stats.indexedJobs}/${stats.totalJobs} 个岗位。`,
+        { kind: 'job_list', jobs, conditions, rag: stats },
+      );
+    }),
+    {
+      name: 'semantic_search_jobs',
+      description: '使用 RAG 语义检索本地职位库。适合“相关岗位、类似岗位、某行业方向、自然语言偏好”等无法靠精确关键词完全匹配的查询。',
+      schema: z.object({
+        query: z.string().min(1).max(160).describe('自然语言检索需求，例如“康复医疗相关的前端岗位”'),
+        city: z.string().max(20).optional().describe('城市；全国可省略'),
+        platform: z.enum(['all', 'boss', 'zhilian', '51job', 'shixiseng']).optional(),
+        minSalaryK: z.number().min(0).max(200).optional().describe('最低月薪，单位 K'),
+        onlyUnclicked: z.boolean().optional(),
+        onlyClicked: z.boolean().optional(),
+        salaryStatus: z.enum(['all', 'present', 'missing']).optional(),
+        companyStatus: z.enum(['all', 'present', 'missing']).optional(),
+        limit: z.number().int().min(1).max(20).optional(),
+        topK: z.number().int().min(5).max(120).optional(),
+      }),
+    },
+  );
 
   const searchJobsTool = tool(
     async (input) => runLogged('search_jobs', input, () => {
@@ -218,7 +282,158 @@ export function createAgentTools(context: ToolContext) {
     },
   );
 
+  const searchCampusSitesTool = tool(
+    async (input) => runLogged('search_campus_sites', input, () => {
+      const sites = searchCampusSites(input.keyword, input.limit).map((site) => ({
+        companyName: site.company_name,
+        siteName: site.site_name || `${site.company_name}校招官网`,
+        url: site.official_url,
+        domain: site.domain,
+        confidence: site.verification_status === 'verified' ? 100 : 95,
+        verificationStatus: site.verification_status === 'verified' ? 'verified' as const : 'user_confirmed' as const,
+        verificationMethod: site.verification_method || 'manual' as const,
+        evidenceUrls: evidenceUrls(site.verification_evidence, site.official_url),
+        siteKind: site.site_kind || 'official_site',
+        reason: site.verification_status === 'verified' ? '来自本地已验证官网库' : '来自用户确认的官网记录',
+      }));
+      return toolResult(
+        sites.length ? `本地官网库找到 ${sites.length} 个可用入口。` : '本地官网库没有匹配的校招官网。',
+        { kind: 'campus_sites', campusSites: sites },
+      );
+    }),
+    {
+      name: 'search_campus_sites',
+      description: '查询本地已经保存并可打开的校招官网。优先用于处理公司校招官网查询。',
+      schema: z.object({
+        keyword: z.string().min(1).max(100).describe('公司名称，例如字节跳动、蚂蚁集团'),
+        limit: z.number().int().min(1).max(10).optional(),
+      }),
+    },
+  );
+
+  const discoverCampusSiteTool = tool(
+    async (input) => runLogged('discover_campus_site', input, async () => {
+      const candidates = await discoverCampusSites(input.companyName, input.sourceQuery || input.companyName);
+      if (!candidates.length) {
+        return toolResult(`暂未找到“${input.companyName}”已验证的官方校招入口。系统不会提供未经验证的跳转链接。`);
+      }
+      const verifiedCount = candidates.filter((candidate) => candidate.verificationStatus === 'verified').length;
+      return toolResult(
+        `找到 ${candidates.length} 个可用的“${input.companyName}”校招入口，其中系统验证 ${verifiedCount} 个，其余为用户确认记录。`,
+        { kind: 'campus_sites', campusSites: candidates },
+      );
+    }),
+    {
+      name: 'discover_campus_site',
+      description: '发现并返回已通过官方域名审核的校招官网。找不到可信入口时返回未找到，绝不返回可疑或未经验证的链接。',
+      schema: z.object({
+        companyName: z.string().min(1).max(100).describe('公司名称'),
+        sourceQuery: z.string().max(240).optional().describe('用户原始查询'),
+      }),
+    },
+  );
+
+  const saveCampusSiteTool = tool(
+    async (input) => runLogged('save_campus_site', input, () => {
+      const candidate = getVerifiedRegistryCandidate(input.companyName, input.officialUrl);
+      if (!candidate) {
+        return toolResult('该链接没有匹配到已审核的官方校招入口，未保存。');
+      }
+      const record = createCampusSite({
+        companyName: candidate.companyName,
+        siteName: input.siteName || candidate.siteName,
+        officialUrl: candidate.url,
+        sourceType: 'agent',
+        sourceQuery: input.sourceQuery,
+        confidence: candidate.confidence,
+        verificationStatus: candidate.verificationStatus,
+        verificationMethod: candidate.verificationMethod,
+        verificationEvidence: candidate.evidenceUrls,
+        siteKind: candidate.siteKind,
+        tags: input.tags,
+        notes: input.notes,
+      });
+      return toolResult('已保存到校招官网库。', { kind: 'campus_sites', campusSites: [candidate], saved: record });
+    }),
+    {
+      name: 'save_campus_site',
+      description: '保存用户确认过的已验证校招官网。仅允许保存可信目录中的官方入口。',
+      schema: z.object({
+        companyName: z.string().min(1).max(100),
+        officialUrl: z.string().url().max(2048),
+        siteName: z.string().max(120).optional(),
+        sourceQuery: z.string().max(240).optional(),
+        tags: z.array(z.string().max(30)).max(20).optional(),
+        notes: z.string().max(1000).optional(),
+      }),
+    },
+  );
+
+  const saveUserConfirmedCampusSitesTool = tool(
+    async (input) => runLogged('save_user_confirmed_campus_sites', input, () => {
+      const saved: any[] = [];
+      const failed: Array<{ companyName: string; url: string; reason: string }> = [];
+
+      for (const site of input.sites) {
+        try {
+          const record = createCampusSite({
+            companyName: site.companyName,
+            siteName: site.siteName,
+            officialUrl: site.officialUrl,
+            sourceType: 'manual',
+            sourceQuery: input.sourceQuery,
+            siteKind: site.siteKind,
+            tags: site.tags,
+            notes: site.notes,
+          });
+          saved.push(record);
+        } catch (error) {
+          if (!(error instanceof CampusSiteDuplicateError)) throw error;
+          failed.push({
+            companyName: site.companyName,
+            url: site.officialUrl,
+            reason: error.message,
+          });
+        }
+      }
+
+      const cards = saved.map((record) => ({
+        companyName: record.company_name,
+        siteName: record.site_name || `${record.company_name}校招入口`,
+        url: record.official_url,
+        domain: record.domain,
+        confidence: 100,
+        verificationStatus: 'user_confirmed' as const,
+        verificationMethod: 'manual' as const,
+        evidenceUrls: [],
+        siteKind: record.site_kind,
+        reason: '用户在消息中明确提供并确认保存；这是用户确认记录，不代表系统已验证官网',
+      }));
+
+      return toolResult(
+        `已将 ${saved.length} 条用户明确提供的校招链接保存到官网库${failed.length ? `，${failed.length} 条未保存` : ''}。`,
+        { kind: 'campus_sites', campusSites: cards, savedCount: saved.length, failed },
+      );
+    }),
+    {
+      name: 'save_user_confirmed_campus_sites',
+      description: '批量保存用户在消息中明确提供的校招链接。允许内推 ATS 链接和信息汇总表，但必须标记为用户已确认，不能当作系统验证的官方入口。',
+      schema: z.object({
+        sites: z.array(z.object({
+          companyName: z.string().min(1).max(100),
+          siteName: z.string().max(120).optional(),
+          officialUrl: z.string().url().max(2048),
+          siteKind: z.enum(['official_site', 'referral_link', 'aggregated_reference']).default('referral_link'),
+          tags: z.array(z.string().max(30)).max(20).optional(),
+          notes: z.string().max(1000).optional(),
+        })).min(1).max(20),
+        sourceQuery: z.string().max(4000).optional(),
+      }),
+    },
+  );
+
   return [
+    semanticSearchJobsTool,
     searchJobsTool,
     getJobDetailTool,
     getStatisticsTool,
@@ -227,5 +442,9 @@ export function createAgentTools(context: ToolContext) {
     savePreferencesTool,
     prepareCrawlTool,
     findDataIssuesTool,
+    searchCampusSitesTool,
+    discoverCampusSiteTool,
+    saveCampusSiteTool,
+    saveUserConfirmedCampusSitesTool,
   ];
 }

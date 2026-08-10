@@ -3,6 +3,7 @@ import path from 'path';
 
 const SERVER_ROOT = path.resolve(__dirname, '..', '..');
 const CONFIG_PATH = path.join(SERVER_ROOT, 'data', 'agent-model.json');
+const CURRENT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 interface StoredAgentConfig {
   apiKey?: string;
@@ -85,9 +86,13 @@ export function getAgentRuntimeConfig(): AgentRuntimeConfig {
   const environmentKey = (process.env.AGENT_API_KEY || process.env.OPENAI_API_KEY || '').trim();
   const apiKey = storedKey || environmentKey;
   const baseUrl = (stored.baseUrl ?? process.env.AGENT_BASE_URL ?? '').trim().replace(/\/$/, '');
+  const configuredModel = (stored.model || process.env.AGENT_MODEL || CURRENT_DEEPSEEK_MODEL).trim();
+  const model = providerOf(baseUrl) === 'deepseek' && configuredModel === 'deepseek-chat'
+    ? CURRENT_DEEPSEEK_MODEL
+    : configuredModel;
   return {
     apiKey,
-    model: (stored.model || process.env.AGENT_MODEL || 'gpt-4.1-mini').trim(),
+    model,
     baseUrl,
     provider: providerOf(baseUrl),
     keySource: storedKey ? 'ui' : environmentKey ? 'environment' : 'none',
@@ -114,10 +119,15 @@ export function saveAgentModelConfig(input: { apiKey?: unknown; model?: unknown;
     : existing.apiKey || '';
   if (apiKey.length > 500) throw new Error('API Key 长度不正确');
 
+  const baseUrl = normalizeBaseUrl(input.baseUrl);
+  const requestedModel = normalizeModel(input.model);
+  const model = providerOf(baseUrl) === 'deepseek' && requestedModel === 'deepseek-chat'
+    ? CURRENT_DEEPSEEK_MODEL
+    : requestedModel;
   writeStoredConfig({
     apiKey,
-    model: normalizeModel(input.model),
-    baseUrl: normalizeBaseUrl(input.baseUrl),
+    model,
+    baseUrl,
     updatedAt: new Date().toISOString(),
   });
   return getSafeAgentConfig();

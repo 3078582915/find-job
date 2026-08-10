@@ -16,7 +16,7 @@ import type { AgentModelConfig } from '../../types';
 type Provider = AgentModelConfig['provider'];
 
 const PRESETS: Record<Exclude<Provider, 'custom'>, { model: string; baseUrl: string }> = {
-  deepseek: { model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com' },
+  deepseek: { model: 'deepseek-v4-flash', baseUrl: 'https://api.deepseek.com' },
   openai: { model: 'gpt-4.1-mini', baseUrl: '' },
 };
 
