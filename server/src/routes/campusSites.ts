@@ -11,6 +11,7 @@ import {
   getVerifiedRegistryCandidate,
   listCampusSites,
   updateCampusSite,
+  updateCampusSiteApplicationStatus,
 } from '../services/campusSiteService';
 
 const router = Router();
@@ -35,6 +36,7 @@ router.get('/campus-sites', (req, res) => {
     keyword: text(req.query.keyword, 100),
     sourceType: text(req.query.sourceType, 20) as any,
     verificationStatus: text(req.query.verificationStatus, 20) as any,
+    applicationStatus: text(req.query.applicationStatus, 20) as any,
     status: text(req.query.status, 20) as any,
     limit: size,
     offset: (page - 1) * size,
@@ -101,6 +103,16 @@ router.put('/campus-sites/:id', (req, res) => {
       notes: req.body.notes,
       status: req.body.status,
     });
+    if (!record) return res.status(404).json({ error: '校招官网不存在' });
+    res.json(record);
+  } catch (error) {
+    return errorResponse(res, error);
+  }
+});
+
+router.patch('/campus-sites/:id/application-status', (req, res) => {
+  try {
+    const record = updateCampusSiteApplicationStatus(req.params.id, text(req.body.applicationStatus, 30) as any);
     if (!record) return res.status(404).json({ error: '校招官网不存在' });
     res.json(record);
   } catch (error) {

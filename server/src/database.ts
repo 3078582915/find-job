@@ -196,6 +196,9 @@ const campusSiteColumns = db.prepare('PRAGMA table_info(campus_sites)').all() as
 if (!campusSiteColumns.some((column) => column.name === 'site_kind')) {
   db.exec("ALTER TABLE campus_sites ADD COLUMN site_kind TEXT NOT NULL DEFAULT 'official_site'");
 }
+if (!campusSiteColumns.some((column) => column.name === 'application_status')) {
+  db.exec("ALTER TABLE campus_sites ADD COLUMN application_status TEXT NOT NULL DEFAULT 'not_applied'");
+}
 
 const legacyLagouAccount = db.prepare(
   "SELECT id FROM platform_accounts WHERE platform_name = 'lagou' LIMIT 1"

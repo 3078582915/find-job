@@ -2,7 +2,7 @@ import axios from 'axios';
 import type {
   Statistics, Resume, DeliverySetting, DeliveryRecordsResponse, Platform,
   JobsResponse, CrawlResult,
-  CampusSite, CampusSitesResponse,
+  CampusApplicationStatus, CampusSite, CampusSitesResponse,
   AgentStatus, AgentConversation, AgentMessage, AgentArtifact,
   AgentModelConfig, AgentConnectionTest,
 } from '../types';
@@ -87,6 +87,7 @@ export const fetchCampusSites = (params?: {
   keyword?: string;
   sourceType?: string;
   verificationStatus?: string;
+  applicationStatus?: string;
   status?: string;
 }) => http.get<CampusSitesResponse>('/campus-sites', { params }).then(r => r.data);
 
@@ -114,6 +115,9 @@ export const updateCampusSite = (id: string, data: {
   notes?: string;
   status?: 'active' | 'inactive';
 }) => http.put<CampusSite>(`/campus-sites/${id}`, data).then(r => r.data);
+
+export const updateCampusSiteApplicationStatus = (id: string, applicationStatus: CampusApplicationStatus) =>
+  http.patch<CampusSite>(`/campus-sites/${id}/application-status`, { applicationStatus }).then(r => r.data);
 
 export const deleteCampusSite = (id: string) =>
   http.delete<{ success: boolean; deleted: number }>(`/campus-sites/${id}`).then(r => r.data);

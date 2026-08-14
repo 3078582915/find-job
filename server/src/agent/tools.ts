@@ -14,6 +14,7 @@ import {
   CampusSiteDuplicateError,
   createCampusSite,
   discoverCampusSites,
+  findCampusSiteCandidates,
   getVerifiedRegistryCandidate,
   searchCampusSites,
 } from '../services/campusSiteService';
@@ -333,6 +334,54 @@ export function createAgentTools(context: ToolContext) {
     },
   );
 
+  const findOfficialCampusSiteTool = tool(
+    async (input) => runLogged('find_official_campus_site', input, async () => {
+      const result = await findCampusSiteCandidates(input.companyName, input.sourceQuery || input.companyName);
+      if (result.verified.length) {
+        const primary = result.verified[0];
+        let saved = false;
+        try {
+          createCampusSite({
+            companyName: primary.companyName,
+            siteName: primary.siteName,
+            officialUrl: primary.url,
+            sourceType: 'agent',
+            sourceQuery: input.sourceQuery || input.companyName,
+            confidence: primary.confidence,
+            verificationStatus: 'verified',
+            verificationMethod: 'official_domain',
+            verificationEvidence: primary.evidenceUrls,
+            externalVerified: true,
+            siteKind: 'official_site',
+            tags: ['校招', '官方入口'],
+          });
+          saved = true;
+        } catch (error) {
+          if (!(error instanceof CampusSiteDuplicateError)) throw error;
+        }
+        return toolResult(
+          `已找到“${input.companyName}”的主校招入口，并通过官方域名、页面内容和校招语义交叉验证${saved ? '，已写入校招官网库' : '，校招官网库中已存在'}。`,
+          { kind: 'campus_sites', campusSites: [{ ...primary, saveable: false, saved }] },
+        );
+      }
+      if (result.review.length) {
+        return toolResult(
+          `找到 ${result.review.length} 个“${input.companyName}”校招候选链接，但证据不足以自动认定为官方入口，已标记为待人工确认。`,
+          { kind: 'campus_site_candidates', campusSiteCandidates: result.review },
+        );
+      }
+      return toolResult(`暂未找到“${input.companyName}”可交叉验证的校招官网候选。`);
+    }),
+    {
+      name: 'find_official_campus_site',
+      description: '自动搜索公司校招官网，并通过域名、搜索结果和页面内容交叉验证。高置信度结果才会作为官方入口返回；证据不足的结果会单独标记为待人工确认，绝不冒充官网。',
+      schema: z.object({
+        companyName: z.string().min(1).max(100).describe('公司名称，例如游卡、米哈游、蚂蚁集团'),
+        sourceQuery: z.string().max(240).optional().describe('用户原始查询'),
+      }),
+    },
+  );
+
   const saveCampusSiteTool = tool(
     async (input) => runLogged('save_campus_site', input, () => {
       const candidate = getVerifiedRegistryCandidate(input.companyName, input.officialUrl);
@@ -443,6 +492,7 @@ export function createAgentTools(context: ToolContext) {
     prepareCrawlTool,
     findDataIssuesTool,
     searchCampusSitesTool,
+    findOfficialCampusSiteTool,
     discoverCampusSiteTool,
     saveCampusSiteTool,
     saveUserConfirmedCampusSitesTool,

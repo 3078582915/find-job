@@ -9,7 +9,7 @@ import {
   Play,
   X,
 } from 'lucide-react';
-import type { AgentArtifact, AgentCampusSiteCard, AgentJobCard } from '../../types';
+import type { AgentArtifact, AgentCampusSiteCard, AgentCampusSiteSearchCandidate, AgentJobCard } from '../../types';
 
 const PLATFORM_LABELS: Record<string, string> = {
   boss: 'BOSS直聘',
@@ -43,7 +43,7 @@ function AgentCampusSiteCardView({ site, onSave }: { site: AgentCampusSiteCard; 
     <article className="rounded-md border border-[#DFE6EC] bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2"><h3 className="text-[15px] font-semibold text-[#17324D]">{site.companyName}</h3><span className="rounded-full bg-[#EFFAF5] px-2 py-0.5 text-xs text-[#17865D]">{site.verificationStatus === 'verified' ? '系统已验证' : '用户已确认'}</span></div>
+          <div className="flex flex-wrap items-center gap-2"><h3 className="text-[15px] font-semibold text-[#17324D]">{site.companyName}</h3><span className="rounded-full bg-[#EFFAF5] px-2 py-0.5 text-xs text-[#17865D]">{site.verificationStatus === 'verified' ? '系统已验证' : '用户已确认'}</span>{site.saved && <span className="rounded-full bg-[#EEF5FF] px-2 py-0.5 text-xs text-[#2E6B9A]">已入库</span>}</div>
           <div className="mt-1 text-sm text-[#5E6F7E]">{site.siteName}</div>
           <div className="mt-2 text-xs text-[#788895]">{site.domain} · {siteKindLabel} · {site.verificationMethod === 'official_referral' ? '官方引荐验证' : site.verificationMethod === 'manual' ? '用户确认' : '官方域名验证'}</div>
           <div className="mt-2 break-all text-xs text-[#8A98A3]">{site.url}</div>
@@ -52,7 +52,27 @@ function AgentCampusSiteCardView({ site, onSave }: { site: AgentCampusSiteCard; 
         </div>
         {canOpen && <a href={site.url} target="_blank" rel="noreferrer" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#D9E1E7] text-[#39536A] hover:border-accent hover:text-accent" title="打开已验证官网"><ExternalLink size={17} /></a>}
       </div>
-      {onSave && site.verificationStatus === 'verified' && <button type="button" onClick={onSave} className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-accent px-3 py-2 text-sm text-accent hover:bg-[#FFF3EE]">保存到官网库</button>}
+      {onSave && site.verificationStatus === 'verified' && site.saveable !== false && <button type="button" onClick={onSave} className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-accent px-3 py-2 text-sm text-accent hover:bg-[#FFF3EE]">保存到官网库</button>}
+    </article>
+  );
+}
+
+function AgentCampusSiteSearchCandidateView({ candidate }: { candidate: AgentCampusSiteSearchCandidate }) {
+  return (
+    <article className="rounded-md border border-[#E8D5A8] bg-[#FFFCF4] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2"><h3 className="text-[15px] font-semibold text-[#17324D]">{candidate.companyName}</h3><span className="rounded-full bg-[#FFF0C7] px-2 py-0.5 text-xs text-[#8A6416]">待人工确认</span></div>
+          <div className="mt-1 text-sm text-[#5E6F7E]">{candidate.siteName}</div>
+          <div className="mt-2 text-xs text-[#788895]">{candidate.domain} · 置信度 {candidate.confidence}</div>
+          <div className="mt-2 break-all text-xs text-[#8A98A3]">{candidate.url}</div>
+          <div className="mt-2 text-xs text-[#8A6416]">{candidate.reason}</div>
+        </div>
+        <a href={candidate.url} target="_blank" rel="noreferrer" className="flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-[#D6BE83] px-2.5 text-xs text-[#7B5D1A] hover:bg-[#FFF4D8]" title="打开候选链接并人工核对">
+          <ExternalLink size={14} />核对链接
+        </a>
+      </div>
+      <div className="mt-3 text-xs text-[#8A6416]">系统不会把这条候选直接当作官方入口或自动入库，请先核对页面归属。</div>
     </article>
   );
 }
@@ -125,6 +145,14 @@ export default function AgentArtifacts({
           return (
             <div key={`campus-sites-${artifactIndex}`} className="space-y-2.5">
               {artifact.campusSites.map((site) => <AgentCampusSiteCardView key={`${site.companyName}-${site.url}`} site={site} onSave={onSaveCampusSite ? () => onSaveCampusSite(site) : undefined} />)}
+            </div>
+          );
+        }
+
+        if (artifact.kind === 'campus_site_candidates' && artifact.campusSiteCandidates?.length) {
+          return (
+            <div key={`campus-site-candidates-${artifactIndex}`} className="space-y-2.5">
+              {artifact.campusSiteCandidates.map((candidate) => <AgentCampusSiteSearchCandidateView key={`${candidate.companyName}-${candidate.url}`} candidate={candidate} />)}
             </div>
           );
         }

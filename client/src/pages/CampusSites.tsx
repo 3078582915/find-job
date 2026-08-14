@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import * as api from '../services/api';
-import type { CampusSite, CampusSiteStats } from '../types';
+import type { CampusApplicationStatus, CampusSite, CampusSiteStats } from '../types';
 
 type FormState = {
   companyName: string;
@@ -68,6 +68,7 @@ export default function CampusSites() {
   const [keyword, setKeyword] = useState('');
   const [sourceType, setSourceType] = useState('all');
   const [verificationStatus, setVerificationStatus] = useState('all');
+  const [applicationStatus, setApplicationStatus] = useState('all');
   const [status, setStatus] = useState('active');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -77,6 +78,7 @@ export default function CampusSites() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [updatingApplicationStatusId, setUpdatingApplicationStatusId] = useState<string | null>(null);
 
   const pageSize = 12;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -91,6 +93,7 @@ export default function CampusSites() {
         keyword: keyword.trim() || undefined,
         sourceType,
         verificationStatus,
+        applicationStatus,
         status,
       });
       setRecords(result.records);
@@ -103,7 +106,7 @@ export default function CampusSites() {
     }
   };
 
-  useEffect(() => { void load(); }, [page, sourceType, verificationStatus, status]);
+  useEffect(() => { void load(); }, [page, sourceType, verificationStatus, applicationStatus, status, keyword]);
 
   const tagsForForm = useMemo(() => form.tags.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean), [form.tags]);
 
@@ -171,6 +174,20 @@ export default function CampusSites() {
     window.open(site.official_url, '_blank', 'noopener,noreferrer');
   };
 
+  const updateApplicationStatus = async (site: CampusSite, value: CampusApplicationStatus) => {
+    if (value === site.application_status) return;
+    setUpdatingApplicationStatusId(site.id);
+    setError('');
+    try {
+      const updated = await api.updateCampusSiteApplicationStatus(site.id, value);
+      if (updated) setRecords((current) => current.map((item) => item.id === updated.id ? updated : item));
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || '投递状态保存失败');
+    } finally {
+      setUpdatingApplicationStatusId(null);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-[1260px]">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
@@ -218,6 +235,9 @@ export default function CampusSites() {
         <select value={verificationStatus} onChange={(event) => { setVerificationStatus(event.target.value); setPage(1); }} className="rounded-md border border-[#D9E1E7] bg-[#FAFCFD] px-3 py-2.5 text-sm">
           <option value="all">全部验证状态</option><option value="verified">系统已验证</option><option value="user_confirmed">用户已确认</option><option value="unverified">未验证</option><option value="rejected">验证拒绝</option>
         </select>
+        <select value={applicationStatus} onChange={(event) => { setApplicationStatus(event.target.value); setPage(1); }} className="rounded-md border border-[#D9E1E7] bg-[#FAFCFD] px-3 py-2.5 text-sm">
+          <option value="all">全部投递状态</option><option value="not_applied">未投递</option><option value="applied">已投递</option><option value="terminated">流程终止</option>
+        </select>
         <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} className="rounded-md border border-[#D9E1E7] bg-[#FAFCFD] px-3 py-2.5 text-sm">
           <option value="all">全部状态</option><option value="active">正常</option><option value="inactive">失效</option>
         </select>
@@ -262,7 +282,21 @@ export default function CampusSites() {
                     {parseTags(site.tags).length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{parseTags(site.tags).map((tag) => <span key={tag} className="rounded bg-[#F4FAFF] px-2 py-1 text-xs text-[#3E6D8E]">{tag}</span>)}</div>}
                     {site.notes && <div className="mt-2 text-xs text-[#7F8C8D]">备注：{site.notes}</div>}
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+                    <label className="flex items-center justify-between gap-2 text-xs text-[#71818E] sm:justify-end">
+                      <span>投递状态</span>
+                      <select
+                        value={site.application_status}
+                        disabled={updatingApplicationStatusId === site.id}
+                        onChange={(event) => void updateApplicationStatus(site, event.target.value as CampusApplicationStatus)}
+                        className={`rounded-md border px-2.5 py-1.5 text-xs outline-none focus:border-accent ${site.application_status === 'applied' ? 'border-[#B8DEC9] bg-[#EFFAF5] text-[#17865D]' : site.application_status === 'terminated' ? 'border-[#F1B5B5] bg-[#FFF0F0] text-[#B42318]' : 'border-[#D9E1E7] bg-[#FAFCFD] text-[#39536A]'}`}
+                      >
+                        <option value="not_applied">未投递</option>
+                        <option value="applied">已投递</option>
+                        <option value="terminated">流程终止</option>
+                      </select>
+                    </label>
+                    <div className="flex items-center gap-2">
                     {openable ? (
                       <button type="button" onClick={() => openSite(site)} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-[#EB5C2A]">
                         <ExternalLink size={14} />打开链接
@@ -270,6 +304,7 @@ export default function CampusSites() {
                     ) : <span className="rounded-md bg-[#F5F7FA] px-3 py-2 text-xs text-[#8A98A3]">未验证，不可打开</span>}
                     <button type="button" onClick={() => openEdit(site)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#D9E1E7] text-[#39536A] hover:border-accent hover:text-accent" title="编辑官网"><Pencil size={15} /></button>
                     <button type="button" onClick={() => void remove(site)} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#F1C7B5] text-[#B33D2E] hover:bg-[#FFF1EE]" title="删除官网"><Trash2 size={15} /></button>
+                    </div>
                   </div>
                 </div>
               </article>

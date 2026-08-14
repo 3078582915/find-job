@@ -42,6 +42,7 @@ const TOOL_LABELS: Record<string, string> = {
   prepare_job_crawl: '正在准备抓取任务',
   find_data_issues: '正在检查数据质量',
   search_campus_sites: '正在查询校招官网库',
+  find_official_campus_site: '正在搜索并核对校招官网',
   discover_campus_site: '正在验证校招官网入口',
   save_campus_site: '正在保存校招官网',
   save_user_confirmed_campus_sites: '正在整理用户提供的校招链接',

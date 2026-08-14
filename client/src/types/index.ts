@@ -218,6 +218,7 @@ export interface AgentJobCard {
 export type CampusVerificationStatus = 'verified' | 'user_confirmed' | 'unverified' | 'rejected';
 export type CampusVerificationMethod = 'official_domain' | 'official_referral' | 'manual' | null;
 export type CampusSiteKind = 'official_site' | 'referral_link' | 'aggregated_reference';
+export type CampusApplicationStatus = 'not_applied' | 'applied' | 'terminated';
 
 export interface CampusSite {
   id: string;
@@ -232,6 +233,7 @@ export interface CampusSite {
   verification_method: CampusVerificationMethod;
   verification_evidence: string | null;
   site_kind: CampusSiteKind;
+  application_status: CampusApplicationStatus;
   status: 'active' | 'inactive';
   tags: string | null;
   notes: string | null;
@@ -267,6 +269,19 @@ export interface AgentCampusSiteCard {
   evidenceUrls: string[];
   siteKind: CampusSiteKind;
   reason: string;
+  saveable?: boolean;
+  saved?: boolean;
+}
+
+export interface AgentCampusSiteSearchCandidate {
+  companyName: string;
+  siteName: string;
+  url: string;
+  domain: string;
+  confidence: number;
+  evidenceUrls: string[];
+  reason: string;
+  reviewRequired: true;
 }
 
 export interface AgentPendingAction {
@@ -283,6 +298,7 @@ export interface AgentArtifact {
   kind: 'job_list' | 'campus_sites' | 'statistics' | 'platform_status' | 'preferences' | 'confirmation' | 'crawl_result' | string;
   jobs?: AgentJobCard[];
   campusSites?: AgentCampusSiteCard[];
+  campusSiteCandidates?: AgentCampusSiteSearchCandidate[];
   conditions?: string;
   statistics?: Record<string, any>;
   platforms?: Array<{ name: string; label: string; loggedIn: boolean; requiresLoginForCrawl: boolean }>;

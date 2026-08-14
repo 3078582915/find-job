@@ -5,6 +5,7 @@ export type CampusSourceType = 'manual' | 'agent';
 export type CampusVerificationStatus = 'verified' | 'user_confirmed' | 'unverified' | 'rejected';
 export type CampusVerificationMethod = 'official_domain' | 'official_referral' | 'manual' | null;
 export type CampusSiteKind = 'official_site' | 'referral_link' | 'aggregated_reference';
+export type CampusApplicationStatus = 'not_applied' | 'applied' | 'terminated';
 
 export interface CampusSite {
   id: string;
@@ -19,6 +20,7 @@ export interface CampusSite {
   verification_method: CampusVerificationMethod;
   verification_evidence: string | null;
   site_kind: CampusSiteKind;
+  application_status: CampusApplicationStatus;
   status: 'active' | 'inactive';
   tags: string | null;
   notes: string | null;
@@ -40,6 +42,17 @@ export interface CampusSiteCandidate {
   reason: string;
 }
 
+export interface CampusSiteSearchCandidate {
+  companyName: string;
+  siteName: string;
+  url: string;
+  domain: string;
+  confidence: number;
+  evidenceUrls: string[];
+  reason: string;
+  reviewRequired: true;
+}
+
 export interface CampusSiteInput {
   companyName: string;
   siteName?: string;
@@ -50,13 +63,36 @@ export interface CampusSiteInput {
   verificationStatus?: CampusVerificationStatus;
   verificationMethod?: Exclude<CampusVerificationMethod, null>;
   verificationEvidence?: string[];
+  externalVerified?: boolean;
   siteKind?: CampusSiteKind;
+  applicationStatus?: CampusApplicationStatus;
   tags?: string[];
   notes?: string;
 }
 
 const MAX_URL_LENGTH = 2048;
 const BLOCKED_HOSTS = new Set(['localhost', 'localhost.localdomain', '0.0.0.0', '127.0.0.1', '::1']);
+const CAMPUS_SEARCH_CACHE_TTL = 5 * 60 * 1000;
+const campusSearchCache = new Map<string, { expiresAt: number; result: { verified: CampusSiteCandidate[]; review: CampusSiteSearchCandidate[] } }>();
+const EXCLUDED_SEARCH_HOSTS = [
+  'bing.com', 'baidu.com', 'google.com', 'so.com', 'sogou.com',
+  'zhipin.com', 'zhaopin.com', '51job.com', 'liepin.com', 'nowcoder.com',
+  'yingjiesheng.com', 'jobui.com', 'docs.qq.com', 'feishu.cn', 'maimai.cn',
+  'edu.cn', 'niuqizp.com', 'hicv.cn', 'chashouye.com', 'sohu.com',
+  'mioffice.cn', 'mokahr.com', 'workday.com', 'smartrecruiters.com', 'greenhouse.io',
+];
+const CAMPUS_PATH_PATTERN = /(camp|career|recruit|recruitment|校园|校招)/i;
+const CAMPUS_PAGE_PATTERN = /(校园招聘|校招|校园招聘官网|campus recruitment|campus careers|campus hiring|graduate recruitment|graduate program|early careers)/i;
+const COMPANY_DOMAIN_HINTS: Record<string, string[]> = {
+  游卡: ['yokaverse', 'yokagames'],
+  华为: ['huawei'],
+  携程: ['ctrip', 'trip'],
+  米哈游: ['mihoyo'],
+  字节跳动: ['bytedance'],
+  腾讯: ['tencent', 'qq'],
+  阿里巴巴: ['alibaba', 'aliyun', 'antgroup'],
+  蚂蚁集团: ['antgroup', 'alipay'],
+};
 
 // This small registry is the trust anchor for Agent discovery. New companies can be added only after their official entry is reviewed.
 const VERIFIED_REGISTRY = [
@@ -86,6 +122,18 @@ const VERIFIED_REGISTRY = [
     domains: ['talent.alibaba.com'],
     pathPrefix: '/campus',
     evidenceUrls: ['https://talent.alibaba.com/campus/'],
+  },
+  {
+    aliases: ['携程', '携程集团', 'ctrip', 'trip.com'],
+    companyName: '携程集团',
+    siteName: '携程校园招聘',
+    url: 'https://careers.ctrip.com/',
+    domains: ['careers.ctrip.com'],
+    pathPrefix: '/',
+    evidenceUrls: [
+      'https://careers.ctrip.com/',
+      'https://pages.ctrip.com/commerce/promote/201108/other/hire/aboutctrip1.html',
+    ],
   },
 ];
 
@@ -147,6 +195,7 @@ function mapRow(row: any): CampusSite {
     source_type: row.source_type as CampusSourceType,
     verification_status: row.verification_status as CampusVerificationStatus,
     verification_method: row.verification_method as CampusVerificationMethod,
+    application_status: (row.application_status || 'not_applied') as CampusApplicationStatus,
     status: row.status as CampusSite['status'],
   };
 }
@@ -155,6 +204,7 @@ export function listCampusSites(options: {
   keyword?: string;
   sourceType?: CampusSourceType | 'all';
   verificationStatus?: CampusVerificationStatus | 'all';
+  applicationStatus?: CampusApplicationStatus | 'all';
   status?: CampusSite['status'] | 'all';
   limit?: number;
   offset?: number;
@@ -174,6 +224,10 @@ export function listCampusSites(options: {
   if (options.verificationStatus && options.verificationStatus !== 'all') {
     where.push('verification_status = ?');
     params.push(options.verificationStatus);
+  }
+  if (options.applicationStatus && options.applicationStatus !== 'all') {
+    where.push('application_status = ?');
+    params.push(options.applicationStatus);
   }
   if (options.status && options.status !== 'all') {
     where.push('status = ?');
@@ -231,10 +285,14 @@ export function createCampusSite(input: CampusSiteInput) {
   const verificationStatus = sourceType === 'manual'
     ? 'user_confirmed'
     : (input.verificationStatus || 'unverified');
+  const externalVerified = input.externalVerified === true
+    && verificationStatus === 'verified'
+    && input.verificationMethod === 'official_domain'
+    && Boolean(input.verificationEvidence?.length);
   if (sourceType === 'agent' && verificationStatus !== 'verified') {
     throw new CampusSiteTrustError('Agent 发现的官网必须先通过验证');
   }
-  if (sourceType === 'agent' && !isTrustedCampusUrl(companyName, raw)) {
+  if (sourceType === 'agent' && !isTrustedCampusUrl(companyName, raw) && !externalVerified) {
     throw new CampusSiteTrustError('该链接没有匹配到已审核的官方入口，不能保存');
   }
 
@@ -249,8 +307,8 @@ export function createCampusSite(input: CampusSiteInput) {
     INSERT INTO campus_sites (
       id, company_name, site_name, official_url, domain, source_type, source_query,
       confidence, verification_status, verification_method, verification_evidence,
-      site_kind, status, tags, notes, last_checked_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+      site_kind, application_status, status, tags, notes, last_checked_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
   `).run(
     id,
     companyName,
@@ -264,6 +322,7 @@ export function createCampusSite(input: CampusSiteInput) {
     sourceType === 'manual' ? 'manual' : (input.verificationMethod || 'official_domain'),
     sourceType === 'manual' ? null : (input.verificationEvidence?.length ? JSON.stringify(input.verificationEvidence.slice(0, 10)) : null),
     siteKind,
+    input.applicationStatus || 'not_applied',
     normalizeTags(input.tags),
     normalizeText(input.notes, 1000) || null,
     verificationStatus === 'verified' ? now : null,
@@ -271,6 +330,17 @@ export function createCampusSite(input: CampusSiteInput) {
     now,
   );
   return getCampusSiteById(id)!;
+}
+
+export function updateCampusSiteApplicationStatus(id: string, applicationStatus: CampusApplicationStatus) {
+  if (applicationStatus !== 'not_applied' && applicationStatus !== 'applied' && applicationStatus !== 'terminated') {
+    throw new CampusSiteInputError('投递状态不正确');
+  }
+  const now = new Date().toISOString();
+  const result = db.prepare(
+    'UPDATE campus_sites SET application_status = ?, updated_at = ? WHERE id = ?'
+  ).run(applicationStatus, now, id);
+  return result.changes ? getCampusSiteById(id) : null;
 }
 
 export function updateCampusSite(id: string, input: Partial<CampusSiteInput> & { status?: CampusSite['status'] }) {
@@ -329,28 +399,151 @@ export function isTrustedCampusUrl(companyName: string, value: string) {
   return entry.domains.includes(hostname) && parsed.pathname.startsWith(entry.pathPrefix);
 }
 
-export async function discoverCampusSites(companyName: string, sourceQuery = companyName): Promise<CampusSiteCandidate[]> {
-  const local = searchCampusSites(companyName, 5);
-  if (local.length) {
-    return local.map((site) => ({
-      companyName: site.company_name,
-      siteName: site.site_name || `${site.company_name}校招官网`,
-      url: site.official_url,
-      domain: site.domain,
-      confidence: site.verification_status === 'verified' ? 100 : 95,
-      verificationStatus: site.verification_status === 'verified' ? 'verified' : 'user_confirmed',
-      verificationMethod: site.verification_method || 'manual',
-      evidenceUrls: (() => {
-        try { return site.verification_evidence ? JSON.parse(site.verification_evidence) : [site.official_url]; } catch { return [site.official_url]; }
-      })(),
-      siteKind: site.site_kind || 'official_site',
-      reason: site.verification_status === 'verified' ? '来自本地已验证官网库' : '来自用户确认的官网记录',
-    }));
-  }
+type ExternalSearchHit = { url: string; title: string; snippet: string; query: string };
 
+function decodeHtml(value: string) {
+  return value
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(Number(code)))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function searchText(value: string) {
+  return value.toLowerCase().replace(/[\s·・（）()有限公司集团股份科技有限]/g, '');
+}
+
+function hostIsExcluded(hostname: string) {
+  return EXCLUDED_SEARCH_HOSTS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+}
+
+function hasCompanyHint(hostname: string, companyName: string) {
+  const host = searchText(hostname.replace(/\./g, ''));
+  const name = searchText(companyName);
+  if (name.length >= 2 && host.includes(name)) return true;
+  return (COMPANY_DOMAIN_HINTS[companyName] || []).some((hint) => host.includes(searchText(hint)));
+}
+
+function isUnrequestedSubBrand(hostname: string, companyName: string) {
+  if (hostname.includes('huaweicloud') && !/(华为云|huawei\s*cloud)/i.test(companyName)) return true;
+  return false;
+}
+
+function pageText(html: string) {
+  return decodeHtml(html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi, ' '));
+}
+
+function pageSignals(html: string) {
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '';
+  const headings = [...html.matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi)].map((match) => match[1]);
+  const descriptions = [...html.matchAll(/<meta\b[^>]*>/gi)]
+    .map((match) => match[0])
+    .filter((tag) => /(?:name|property)=["'](?:description|og:description|twitter:description)["']/i.test(tag))
+    .map((tag) => tag.match(/content=["']([^"']*)["']/i)?.[1] || '');
+  return decodeHtml([title, ...headings, ...descriptions].join(' '));
+}
+
+function parseSearchLinks(html: string, query: string, engine: 'bing' | 'baidu') {
+  const hits: ExternalSearchHit[] = [];
+  const pattern = engine === 'bing'
+    ? /<h2[^>]*>\s*<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>\s*<\/h2>/gi
+    : /<h3[^>]*>\s*<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>\s*<\/h3>/gi;
+  for (const match of html.matchAll(pattern)) {
+    const rawUrl = decodeHtml(match[1]);
+    let url: URL;
+    try { url = new URL(rawUrl); } catch { continue; }
+    if (!['http:', 'https:'].includes(url.protocol) || hostIsExcluded(url.hostname)) continue;
+    hits.push({ url: url.toString(), title: decodeHtml(match[2]), snippet: '', query });
+  }
+  return hits.slice(0, 8);
+}
+
+async function fetchExternalText(url: string, timeoutMs = 8000) {
+  try {
+    const response = await fetch(url, {
+      headers: { 'user-agent': 'Mozilla/5.0 JobAgent/1.0 campus-site-discovery' },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) return '';
+    return (await response.text()).slice(0, 500_000);
+  } catch {
+    return '';
+  }
+}
+
+async function searchExternalSites(query: string) {
+  const endpoints: Array<{ engine: 'bing' | 'baidu'; url: string }> = [
+    { engine: 'bing', url: `https://www.bing.com/search?setlang=zh-CN&count=10&q=${encodeURIComponent(query)}` },
+    { engine: 'baidu', url: `https://www.baidu.com/s?wd=${encodeURIComponent(query)}` },
+  ];
+  for (const endpoint of endpoints) {
+    const html = await fetchExternalText(endpoint.url, 7000);
+    if (!html) continue;
+    const hits = parseSearchLinks(html, query, endpoint.engine);
+    if (hits.length) return hits;
+  }
+  return [];
+}
+
+function candidateKey(url: string) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.hostname.toLowerCase()}${parsed.pathname.replace(/\/$/, '')}`;
+  } catch {
+    return url;
+  }
+}
+
+function candidateDomainKey(candidate: { domain: string }) {
+  return candidate.domain.toLowerCase().replace(/^www\./, '');
+}
+
+function preferCampusCandidate<T extends { domain: string; url: string; confidence: number }>(current: T, next: T) {
+  if (next.confidence !== current.confidence) return next.confidence > current.confidence ? next : current;
+  const currentPath = new URL(current.url).pathname.toLowerCase();
+  const nextPath = new URL(next.url).pathname.toLowerCase();
+  const currentExact = /campus-recruit|campus-recruitment/.test(currentPath) ? 1 : 0;
+  const nextExact = /campus-recruit|campus-recruitment/.test(nextPath) ? 1 : 0;
+  if (nextExact !== currentExact) return nextExact > currentExact ? next : current;
+  return nextPath.length < currentPath.length ? next : current;
+}
+
+function dedupeCampusCandidates<T extends { domain: string; url: string; confidence: number }>(candidates: T[]) {
+  const byDomain = new Map<string, T>();
+  for (const candidate of candidates) {
+    const key = candidateDomainKey(candidate);
+    const current = byDomain.get(key);
+    byDomain.set(key, current ? preferCampusCandidate(current, candidate) : candidate);
+  }
+  return [...byDomain.values()];
+}
+
+function localCandidate(site: CampusSite): CampusSiteCandidate {
+  return {
+    companyName: site.company_name,
+    siteName: site.site_name || `${site.company_name}校招官网`,
+    url: site.official_url,
+    domain: site.domain,
+    confidence: site.verification_status === 'verified' ? 100 : 95,
+    verificationStatus: site.verification_status === 'verified' ? 'verified' : 'user_confirmed',
+    verificationMethod: site.verification_method || 'manual',
+    evidenceUrls: (() => {
+      try { return site.verification_evidence ? JSON.parse(site.verification_evidence) : [site.official_url]; } catch { return [site.official_url]; }
+    })(),
+    siteKind: site.site_kind || 'official_site',
+    reason: site.verification_status === 'verified' ? '来自本地已验证官网库' : '来自用户确认的官网记录',
+  };
+}
+
+function registryCandidate(companyName: string): CampusSiteCandidate | null {
   const entry = registryForCompany(companyName);
-  if (!entry) return [];
-  return [{
+  if (!entry) return null;
+  return {
     companyName: entry.companyName,
     siteName: entry.siteName,
     url: entry.url,
@@ -361,7 +554,96 @@ export async function discoverCampusSites(companyName: string, sourceQuery = com
     evidenceUrls: entry.evidenceUrls,
     siteKind: 'official_site',
     reason: '命中已审核的公司官方校招入口，域名和路径均在可信目录内',
-  }];
+  };
+}
+
+export async function findCampusSiteCandidates(companyName: string, sourceQuery = companyName) {
+  const local = searchCampusSites(companyName, 5);
+  if (local.length) return { verified: local.map(localCandidate), review: [] as CampusSiteSearchCandidate[] };
+  const registry = registryCandidate(companyName);
+  if (registry) return { verified: [registry], review: [] as CampusSiteSearchCandidate[] };
+
+  const cacheKey = searchText(`${companyName}|${sourceQuery}`);
+  const cached = campusSearchCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.result;
+
+  const domainHints = COMPANY_DOMAIN_HINTS[companyName] || [];
+  const queries = [
+    `${companyName} 校园招聘 官方`,
+    `${companyName} 校招 官网`,
+    ...domainHints.flatMap((hint) => [`site:${hint} ${companyName} 校招`, `${companyName} ${hint}`]),
+  ];
+  const allHits = (await Promise.all(queries.map((query) => searchExternalSites(query)))).flat();
+  const grouped = new Map<string, { hit: ExternalSearchHit; count: number; titles: string[] }>();
+  for (const hit of allHits) {
+    const key = candidateKey(hit.url);
+    const current = grouped.get(key);
+    if (current) {
+      current.count += 1;
+      current.titles.push(hit.title);
+    } else {
+      grouped.set(key, { hit, count: 1, titles: [hit.title] });
+    }
+  }
+
+  const verified: CampusSiteCandidate[] = [];
+  const review: CampusSiteSearchCandidate[] = [];
+  for (const item of [...grouped.values()].slice(0, 12)) {
+    let parsed: URL;
+    try { parsed = new URL(item.hit.url); } catch { continue; }
+    if (hostIsExcluded(parsed.hostname)) continue;
+    if (isUnrequestedSubBrand(parsed.hostname, companyName)) continue;
+    if (parsed.protocol === 'http:') parsed.protocol = 'https:';
+    const titleText = item.titles.join(' ');
+    const hasCompanyText = searchText(`${titleText} ${item.hit.snippet}`).includes(searchText(companyName));
+    const hasCampusPath = CAMPUS_PATH_PATTERN.test(parsed.pathname);
+    const officialHint = hasCompanyHint(parsed.hostname, companyName);
+    if (!hasCompanyText && !officialHint) continue;
+
+    const html = await fetchExternalText(parsed.toString());
+    const visible = pageText(html);
+    const signals = pageSignals(html);
+    const pageConfirmsCompany = Boolean(signals && searchText(signals).includes(searchText(companyName)))
+      || Boolean(visible && searchText(visible.slice(0, 100_000)).includes(searchText(companyName)));
+    const pageConfirmsCampus = Boolean(signals && CAMPUS_PAGE_PATTERN.test(signals))
+      || Boolean(hasCampusPath && visible && CAMPUS_PAGE_PATTERN.test(visible.slice(0, 100_000)));
+    const hasCampusEvidence = hasCampusPath || Boolean(signals && CAMPUS_PAGE_PATTERN.test(signals));
+    if (!hasCampusEvidence || (!officialHint && !hasCampusPath)) continue;
+    const searchVerified = hasCampusPath && hasCompanyText && pageConfirmsCompany && pageConfirmsCampus;
+    const officialEvidence = officialHint || searchVerified;
+    const score = Math.min(99, 35 + (item.count > 1 ? 20 : 0) + (hasCompanyText ? 15 : 0) + (hasCampusPath ? 10 : 0) + (officialEvidence ? 25 : 0) + (pageConfirmsCompany ? 10 : 0) + (pageConfirmsCampus ? 5 : 0));
+    const evidenceUrls = [...new Set([item.hit.url, ...queries.map((query) => `https://www.bing.com/search?q=${encodeURIComponent(query)}`)])].slice(0, 4);
+    const candidate = {
+      companyName,
+      siteName: `${companyName}校招官网候选`,
+      url: parsed.toString(),
+      domain: parsed.hostname,
+      confidence: score,
+      evidenceUrls,
+      reason: `外部搜索命中 ${item.count} 个独立查询，${officialHint ? '域名包含公司标识，' : searchVerified ? '搜索结果与校招专属页面相互印证，' : ''}${pageConfirmsCompany ? '页面包含公司名称，' : ''}${pageConfirmsCampus ? '页面包含校招语义。' : '仍需人工确认页面归属。'}`,
+    };
+    if (officialEvidence && pageConfirmsCompany && pageConfirmsCampus && score >= 75) {
+      verified.push({
+        ...candidate,
+        siteName: `${companyName}校招官网`,
+        verificationStatus: 'verified',
+        verificationMethod: 'official_domain',
+        siteKind: 'official_site',
+        reason: `${candidate.reason} 已通过域名、页面内容和校招语义交叉验证。`,
+      });
+    } else if (score >= 45) {
+      review.push({ ...candidate, reviewRequired: true });
+    }
+  }
+
+  const result = { verified: dedupeCampusCandidates(verified).slice(0, 5), review: dedupeCampusCandidates(review).slice(0, 5) };
+  campusSearchCache.set(cacheKey, { expiresAt: Date.now() + CAMPUS_SEARCH_CACHE_TTL, result });
+  return result;
+}
+
+export async function discoverCampusSites(companyName: string, sourceQuery = companyName): Promise<CampusSiteCandidate[]> {
+  const result = await findCampusSiteCandidates(companyName, sourceQuery);
+  return result.verified;
 }
 
 export function getVerifiedRegistryCandidate(companyName: string, url: string) {
