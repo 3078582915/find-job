@@ -21,6 +21,8 @@ export interface CampusSite {
   verification_evidence: string | null;
   site_kind: CampusSiteKind;
   application_status: CampusApplicationStatus;
+  applied_at: string | null;
+  application_status_updated_at: string | null;
   status: 'active' | 'inactive';
   tags: string | null;
   notes: string | null;
@@ -200,12 +202,15 @@ function mapRow(row: any): CampusSite {
   };
 }
 
-export function listCampusSites(options: {
+export interface CampusSiteListOptions {
   keyword?: string;
   sourceType?: CampusSourceType | 'all';
   verificationStatus?: CampusVerificationStatus | 'all';
   applicationStatus?: CampusApplicationStatus | 'all';
   status?: CampusSite['status'] | 'all';
+}
+
+export function listCampusSites(options: CampusSiteListOptions & {
   limit?: number;
   offset?: number;
 } = {}) {
@@ -303,12 +308,16 @@ export function createCampusSite(input: CampusSiteInput) {
 
   const now = new Date().toISOString();
   const id = uuidv4();
+  const applicationStatus = input.applicationStatus || 'not_applied';
+  const appliedAt = applicationStatus === 'applied' ? now : null;
+  const applicationStatusUpdatedAt = applicationStatus === 'not_applied' ? null : now;
   db.prepare(`
     INSERT INTO campus_sites (
       id, company_name, site_name, official_url, domain, source_type, source_query,
       confidence, verification_status, verification_method, verification_evidence,
-      site_kind, application_status, status, tags, notes, last_checked_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+      site_kind, application_status, applied_at, application_status_updated_at,
+      status, tags, notes, last_checked_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
   `).run(
     id,
     companyName,
@@ -322,7 +331,9 @@ export function createCampusSite(input: CampusSiteInput) {
     sourceType === 'manual' ? 'manual' : (input.verificationMethod || 'official_domain'),
     sourceType === 'manual' ? null : (input.verificationEvidence?.length ? JSON.stringify(input.verificationEvidence.slice(0, 10)) : null),
     siteKind,
-    input.applicationStatus || 'not_applied',
+    applicationStatus,
+    appliedAt,
+    applicationStatusUpdatedAt,
     normalizeTags(input.tags),
     normalizeText(input.notes, 1000) || null,
     verificationStatus === 'verified' ? now : null,
@@ -336,11 +347,110 @@ export function updateCampusSiteApplicationStatus(id: string, applicationStatus:
   if (applicationStatus !== 'not_applied' && applicationStatus !== 'applied' && applicationStatus !== 'terminated') {
     throw new CampusSiteInputError('投递状态不正确');
   }
+  const current = getCampusSiteById(id);
+  if (!current) return null;
+  if (current.application_status === applicationStatus) return current;
   const now = new Date().toISOString();
+  const appliedAt = applicationStatus === 'not_applied'
+    ? null
+    : applicationStatus === 'applied'
+      ? (current.applied_at || now)
+      : current.applied_at;
   const result = db.prepare(
-    'UPDATE campus_sites SET application_status = ?, updated_at = ? WHERE id = ?'
-  ).run(applicationStatus, now, id);
+    'UPDATE campus_sites SET application_status = ?, applied_at = ?, application_status_updated_at = ?, updated_at = ? WHERE id = ?'
+  ).run(applicationStatus, appliedAt, now, now, id);
   return result.changes ? getCampusSiteById(id) : null;
+}
+
+function formatExportTime(value: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
+}
+
+function csvCell(value: unknown) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function exportTags(value: string | null) {
+  if (!value) return '';
+  try {
+    const tags = JSON.parse(value);
+    return Array.isArray(tags) ? tags.join('、') : value;
+  } catch {
+    return value;
+  }
+}
+
+export function exportCampusSitesCsv(options: CampusSiteListOptions = {}) {
+  const where: string[] = ['1 = 1'];
+  const params: unknown[] = [];
+  const keyword = normalizeText(options.keyword, 100);
+  if (keyword) {
+    where.push('(company_name LIKE ? OR site_name LIKE ? OR domain LIKE ? OR tags LIKE ?)');
+    const value = `%${keyword}%`;
+    params.push(value, value, value, value);
+  }
+  if (options.sourceType && options.sourceType !== 'all') {
+    where.push('source_type = ?');
+    params.push(options.sourceType);
+  }
+  if (options.verificationStatus && options.verificationStatus !== 'all') {
+    where.push('verification_status = ?');
+    params.push(options.verificationStatus);
+  }
+  if (options.applicationStatus && options.applicationStatus !== 'all') {
+    where.push('application_status = ?');
+    params.push(options.applicationStatus);
+  }
+  if (options.status && options.status !== 'all') {
+    where.push('status = ?');
+    params.push(options.status);
+  }
+
+  const records = db.prepare(`
+    SELECT * FROM campus_sites
+    WHERE ${where.join(' AND ')}
+    ORDER BY CASE verification_status WHEN 'verified' THEN 0 WHEN 'user_confirmed' THEN 1 ELSE 2 END,
+             updated_at DESC, company_name ASC
+  `).all(...params).map(mapRow);
+  const statusLabels: Record<CampusApplicationStatus, string> = {
+    not_applied: '未投递',
+    applied: '已投递',
+    terminated: '流程终止',
+  };
+  const verificationLabels: Record<CampusVerificationStatus, string> = {
+    verified: '系统已验证',
+    user_confirmed: '用户已确认',
+    unverified: '未验证',
+    rejected: '验证拒绝',
+  };
+  const sourceLabels: Record<CampusSourceType, string> = { agent: 'Agent 发现', manual: '手动添加' };
+  const kindLabels: Record<CampusSiteKind, string> = {
+    official_site: '官方入口',
+    referral_link: '内推链接',
+    aggregated_reference: '信息汇总表',
+  };
+  const headers = ['公司名称', '官网名称', '官网链接', '域名', '投递状态', '首次投递时间', '投递状态更新时间', '官网状态', '验证状态', '来源', '链接类型', '置信度', '标签', '备注', '创建时间', '记录更新时间'];
+  const rows = records.map((site) => [
+    site.company_name,
+    site.site_name || '',
+    site.official_url,
+    site.domain,
+    statusLabels[site.application_status],
+    formatExportTime(site.applied_at),
+    formatExportTime(site.application_status_updated_at),
+    site.status === 'active' ? '正常' : '失效',
+    verificationLabels[site.verification_status],
+    sourceLabels[site.source_type],
+    kindLabels[site.site_kind],
+    site.confidence,
+    exportTags(site.tags),
+    site.notes || '',
+    formatExportTime(site.created_at),
+    formatExportTime(site.updated_at),
+  ]);
+  return '\uFEFF' + [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
 }
 
 export function updateCampusSite(id: string, input: Partial<CampusSiteInput> & { status?: CampusSite['status'] }) {

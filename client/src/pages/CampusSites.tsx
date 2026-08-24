@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
+  Download,
   ExternalLink,
   GraduationCap,
   Link2,
@@ -57,7 +58,7 @@ function canOpen(site: CampusSite) {
 }
 
 function formatTime(value: string | null) {
-  if (!value) return '未检查';
+  if (!value) return '未记录';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
 }
@@ -74,6 +75,7 @@ export default function CampusSites() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -188,6 +190,32 @@ export default function CampusSites() {
     }
   };
 
+  const exportSites = async () => {
+    setExporting(true);
+    setError('');
+    try {
+      const csv = await api.exportCampusSites({
+        keyword: keyword.trim() || undefined,
+        sourceType,
+        verificationStatus,
+        applicationStatus,
+        status,
+      });
+      const url = URL.createObjectURL(csv);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `校招官网汇总-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || '导出失败');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-[1260px]">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
@@ -198,9 +226,14 @@ export default function CampusSites() {
           </div>
           <p className="mt-2 text-sm text-[#7F8C8D]">独立管理公司校招官网、内推链接和信息汇总表</p>
         </div>
-        <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-[#EB5C2A]">
-          <Plus size={16} />添加官网
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => void exportSites()} disabled={exporting} className="inline-flex items-center gap-2 rounded-md border border-[#D9E1E7] bg-white px-4 py-2.5 text-sm font-medium text-[#39536A] hover:border-accent hover:text-accent disabled:opacity-50" title="导出当前筛选结果">
+            {exporting ? <RefreshCw size={16} className="animate-spin" /> : <Download size={16} />}{exporting ? '导出中...' : '导出 Excel'}
+          </button>
+          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-[#EB5C2A]">
+            <Plus size={16} />添加官网
+          </button>
+        </div>
       </div>
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -276,9 +309,13 @@ export default function CampusSites() {
                       <span className="inline-flex items-center gap-1"><Link2 size={13} />{site.domain}</span>
                       <span>{sourceLabel(site.source_type)}</span>
                       <span>{siteKindLabel(site.site_kind || 'official_site')}</span>
-                      <span>最近检查：{formatTime(site.last_checked_at)}</span>
+                      <span>最近检查：{site.last_checked_at ? formatTime(site.last_checked_at) : '未检查'}</span>
                     </div>
                     <div className="mt-2 break-all text-xs text-[#8A98A3]">{site.official_url}</div>
+                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#71818E]">
+                      <span>首次投递：{site.applied_at ? formatTime(site.applied_at) : '未记录'}</span>
+                      <span>状态更新：{site.application_status_updated_at ? formatTime(site.application_status_updated_at) : '未记录'}</span>
+                    </div>
                     {parseTags(site.tags).length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{parseTags(site.tags).map((tag) => <span key={tag} className="rounded bg-[#F4FAFF] px-2 py-1 text-xs text-[#3E6D8E]">{tag}</span>)}</div>}
                     {site.notes && <div className="mt-2 text-xs text-[#7F8C8D]">备注：{site.notes}</div>}
                   </div>

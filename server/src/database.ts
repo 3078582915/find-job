@@ -116,6 +116,9 @@ db.exec(`
     verification_method TEXT,
     verification_evidence TEXT,
     site_kind TEXT NOT NULL DEFAULT 'official_site',
+    application_status TEXT NOT NULL DEFAULT 'not_applied',
+    applied_at DATETIME,
+    application_status_updated_at DATETIME,
     status TEXT NOT NULL DEFAULT 'active',
     tags TEXT,
     notes TEXT,
@@ -199,6 +202,14 @@ if (!campusSiteColumns.some((column) => column.name === 'site_kind')) {
 if (!campusSiteColumns.some((column) => column.name === 'application_status')) {
   db.exec("ALTER TABLE campus_sites ADD COLUMN application_status TEXT NOT NULL DEFAULT 'not_applied'");
 }
+if (!campusSiteColumns.some((column) => column.name === 'applied_at')) {
+  db.exec('ALTER TABLE campus_sites ADD COLUMN applied_at DATETIME');
+}
+if (!campusSiteColumns.some((column) => column.name === 'application_status_updated_at')) {
+  db.exec('ALTER TABLE campus_sites ADD COLUMN application_status_updated_at DATETIME');
+}
+// “未投递”不应保留投递时间，兼容此前保留历史时间的版本。
+db.exec("UPDATE campus_sites SET applied_at = NULL WHERE application_status = 'not_applied' AND applied_at IS NOT NULL");
 
 const legacyLagouAccount = db.prepare(
   "SELECT id FROM platform_accounts WHERE platform_name = 'lagou' LIMIT 1"

@@ -177,6 +177,22 @@ function artifactKey(artifact: AgentArtifact) {
   return JSON.stringify(artifact);
 }
 
+function campusPersistenceReceipt(artifacts: AgentArtifact[]) {
+  const receipts = artifacts
+    .map((artifact) => artifact.persistence as any)
+    .filter((receipt) => receipt?.operation === 'save_campus_site' || receipt?.operation === 'save_user_confirmed_campus_sites');
+  if (!receipts.length) return '';
+
+  const savedCount = receipts.reduce((total, receipt) => total + Number(receipt.savedCount || 0), 0);
+  const existingCount = receipts.reduce((total, receipt) => total + Number(receipt.existingCount || 0), 0);
+  const failedCount = receipts.reduce((total, receipt) => total + Number(receipt.failedCount || 0), 0);
+  return `数据库入库回执：本次实际写入 ${savedCount} 条，库中已有 ${existingCount} 条，未写入 ${failedCount} 条。以上数量以数据库写入结果为准。`;
+}
+
+function hasCampusSaveIntent(message: string) {
+  return /校招|招聘|官网/.test(message) && /入库|保存|写入|整理.*库|汇总.*库/.test(message);
+}
+
 function pendingActionToArtifact(action: any): AgentArtifact | null {
   if (action.action_type !== 'crawl_jobs') return null;
   const payload = action.payload || {};
@@ -366,8 +382,8 @@ export async function runAgentConversation(
     }
   }
 
-  const finalText = extractFinalText(finalOutput) || streamedText.trim() || '任务已经处理完成。';
   const lastUserMessage = storedMessages[storedMessages.length - 1]?.content || '';
+  let finalText = extractFinalText(finalOutput) || streamedText.trim() || '任务已经处理完成。';
   appendMissingPendingActionArtifacts(conversationId, userId, artifacts, seenArtifacts);
   appendImplicitCrawlConfirmationIfNeeded(
     conversationId,
@@ -378,6 +394,12 @@ export async function runAgentConversation(
     seenArtifacts,
     callbacks,
   );
+  const persistenceReceipt = campusPersistenceReceipt(artifacts);
+  if (persistenceReceipt) {
+    finalText = `${finalText}\n\n${persistenceReceipt}`;
+  } else if (hasCampusSaveIntent(lastUserMessage)) {
+    finalText = `${finalText}\n\n数据库入库回执：本轮没有检测到成功的校招官网入库操作，请不要把上面的描述当作已入库结果。`;
+  }
   activeThreads.add(conversationId);
   const message = appendMessage(conversationId, 'assistant', finalText, { artifacts });
   return { message, artifacts };

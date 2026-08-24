@@ -91,6 +91,14 @@ export const fetchCampusSites = (params?: {
   status?: string;
 }) => http.get<CampusSitesResponse>('/campus-sites', { params }).then(r => r.data);
 
+export const exportCampusSites = (params?: {
+  keyword?: string;
+  sourceType?: string;
+  verificationStatus?: string;
+  applicationStatus?: string;
+  status?: string;
+}) => http.get<Blob>('/campus-sites/export', { params, responseType: 'blob' }).then(r => r.data);
+
 export const createCampusSite = (data: {
   companyName: string;
   siteName?: string;

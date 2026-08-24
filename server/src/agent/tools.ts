@@ -361,7 +361,17 @@ export function createAgentTools(context: ToolContext) {
         }
         return toolResult(
           `已找到“${input.companyName}”的主校招入口，并通过官方域名、页面内容和校招语义交叉验证${saved ? '，已写入校招官网库' : '，校招官网库中已存在'}。`,
-          { kind: 'campus_sites', campusSites: [{ ...primary, saveable: false, saved }] },
+          {
+            kind: 'campus_sites',
+            campusSites: [{ ...primary, saveable: false, saved }],
+            persistence: {
+              operation: 'save_campus_site',
+              status: saved ? 'saved' : 'existing',
+              savedCount: saved ? 1 : 0,
+              existingCount: saved ? 0 : 1,
+              failedCount: 0,
+            },
+          },
         );
       }
       if (result.review.length) {
@@ -386,23 +396,38 @@ export function createAgentTools(context: ToolContext) {
     async (input) => runLogged('save_campus_site', input, () => {
       const candidate = getVerifiedRegistryCandidate(input.companyName, input.officialUrl);
       if (!candidate) {
-        return toolResult('该链接没有匹配到已审核的官方校招入口，未保存。');
+        return toolResult('该链接没有匹配到已审核的官方校招入口，未保存。', {
+          persistence: { operation: 'save_campus_site', status: 'failed', savedCount: 0, existingCount: 0, failedCount: 1 },
+        });
       }
-      const record = createCampusSite({
-        companyName: candidate.companyName,
-        siteName: input.siteName || candidate.siteName,
-        officialUrl: candidate.url,
-        sourceType: 'agent',
-        sourceQuery: input.sourceQuery,
-        confidence: candidate.confidence,
-        verificationStatus: candidate.verificationStatus,
-        verificationMethod: candidate.verificationMethod,
-        verificationEvidence: candidate.evidenceUrls,
-        siteKind: candidate.siteKind,
-        tags: input.tags,
-        notes: input.notes,
-      });
-      return toolResult('已保存到校招官网库。', { kind: 'campus_sites', campusSites: [candidate], saved: record });
+      try {
+        const record = createCampusSite({
+          companyName: candidate.companyName,
+          siteName: input.siteName || candidate.siteName,
+          officialUrl: candidate.url,
+          sourceType: 'agent',
+          sourceQuery: input.sourceQuery,
+          confidence: candidate.confidence,
+          verificationStatus: candidate.verificationStatus,
+          verificationMethod: candidate.verificationMethod,
+          verificationEvidence: candidate.evidenceUrls,
+          siteKind: candidate.siteKind,
+          tags: input.tags,
+          notes: input.notes,
+        });
+        return toolResult('已保存到校招官网库。', {
+          kind: 'campus_sites',
+          campusSites: [{ ...candidate, saved: true }],
+          persistence: { operation: 'save_campus_site', status: 'saved', savedCount: 1, existingCount: 0, failedCount: 0, recordId: record.id },
+        });
+      } catch (error) {
+        if (!(error instanceof CampusSiteDuplicateError)) throw error;
+        return toolResult('该校招官网已存在于官网库，本次没有新增记录。', {
+          kind: 'campus_sites',
+          campusSites: [{ ...candidate, saved: false }],
+          persistence: { operation: 'save_campus_site', status: 'existing', savedCount: 0, existingCount: 1, failedCount: 0 },
+        });
+      }
     }),
     {
       name: 'save_campus_site',
@@ -421,6 +446,7 @@ export function createAgentTools(context: ToolContext) {
   const saveUserConfirmedCampusSitesTool = tool(
     async (input) => runLogged('save_user_confirmed_campus_sites', input, () => {
       const saved: any[] = [];
+      const existing: Array<{ companyName: string; url: string; reason: string }> = [];
       const failed: Array<{ companyName: string; url: string; reason: string }> = [];
 
       for (const site of input.sites) {
@@ -437,12 +463,13 @@ export function createAgentTools(context: ToolContext) {
           });
           saved.push(record);
         } catch (error) {
-          if (!(error instanceof CampusSiteDuplicateError)) throw error;
-          failed.push({
+          const item = {
             companyName: site.companyName,
             url: site.officialUrl,
-            reason: error.message,
-          });
+            reason: error instanceof Error ? error.message : String(error),
+          };
+          if (error instanceof CampusSiteDuplicateError) existing.push(item);
+          else failed.push(item);
         }
       }
 
@@ -457,11 +484,27 @@ export function createAgentTools(context: ToolContext) {
         evidenceUrls: [],
         siteKind: record.site_kind,
         reason: '用户在消息中明确提供并确认保存；这是用户确认记录，不代表系统已验证官网',
+        saved: true,
       }));
 
+      const persistenceStatus = failed.length ? 'partial' : saved.length ? 'saved' : existing.length ? 'existing' : 'failed';
       return toolResult(
-        `已将 ${saved.length} 条用户明确提供的校招链接保存到官网库${failed.length ? `，${failed.length} 条未保存` : ''}。`,
-        { kind: 'campus_sites', campusSites: cards, savedCount: saved.length, failed },
+        `本次实际写入 ${saved.length} 条校招链接${existing.length ? `，已有 ${existing.length} 条` : ''}${failed.length ? `，${failed.length} 条失败` : ''}。`,
+        {
+          kind: 'campus_sites',
+          campusSites: cards,
+          persistence: {
+            operation: 'save_user_confirmed_campus_sites',
+            status: persistenceStatus,
+            savedCount: saved.length,
+            existingCount: existing.length,
+            failedCount: failed.length,
+          },
+          savedCount: saved.length,
+          existingCount: existing.length,
+          failed,
+          existing,
+        },
       );
     }),
     {

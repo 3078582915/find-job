@@ -10,6 +10,7 @@ import {
   getCampusSiteStats,
   getVerifiedRegistryCandidate,
   listCampusSites,
+  exportCampusSitesCsv,
   updateCampusSite,
   updateCampusSiteApplicationStatus,
 } from '../services/campusSiteService';
@@ -46,6 +47,19 @@ router.get('/campus-sites', (req, res) => {
 
 router.get('/campus-sites/stats', (_req, res) => {
   res.json(getCampusSiteStats());
+});
+
+router.get('/campus-sites/export', (req, res) => {
+  const csv = exportCampusSitesCsv({
+    keyword: text(req.query.keyword, 100),
+    sourceType: text(req.query.sourceType, 20) as any,
+    verificationStatus: text(req.query.verificationStatus, 20) as any,
+    applicationStatus: text(req.query.applicationStatus, 20) as any,
+    status: text(req.query.status, 20) as any,
+  });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', "attachment; filename*=UTF-8''campus-sites.csv");
+  res.send(csv);
 });
 
 router.post('/campus-sites/discover', async (req, res) => {

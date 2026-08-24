@@ -234,6 +234,8 @@ export interface CampusSite {
   verification_evidence: string | null;
   site_kind: CampusSiteKind;
   application_status: CampusApplicationStatus;
+  applied_at: string | null;
+  application_status_updated_at: string | null;
   status: 'active' | 'inactive';
   tags: string | null;
   notes: string | null;
