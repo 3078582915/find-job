@@ -127,6 +127,9 @@ export const updateCampusSite = (id: string, data: {
 export const updateCampusSiteApplicationStatus = (id: string, applicationStatus: CampusApplicationStatus) =>
   http.patch<CampusSite>(`/campus-sites/${id}/application-status`, { applicationStatus }).then(r => r.data);
 
+export const updateCampusSiteFavorite = (id: string, isFavorite: boolean) =>
+  http.patch<CampusSite>(`/campus-sites/${id}/favorite`, { isFavorite }).then(r => r.data);
+
 export const deleteCampusSite = (id: string) =>
   http.delete<{ success: boolean; deleted: number }>(`/campus-sites/${id}`).then(r => r.data);
 

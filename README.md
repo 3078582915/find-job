@@ -22,6 +22,7 @@
 - [目录结构](#目录结构)
 - [环境要求](#环境要求)
 - [安装依赖](#安装依赖)
+- [给别人使用](#给别人使用)
 - [配置 Agent 模型](#配置-agent-模型)
 - [启动开发环境](#启动开发环境)
 - [构建项目](#构建项目)
@@ -49,10 +50,11 @@
 - 支持按平台、关键词、城市、薪资状态、公司名状态、查看状态筛选职位库。
 - 记录点击过的职位，区分已查看和未查看。
 - 解码 BOSS 直聘薪资中的私有字体数字，例如 `-K·薪` 会显示为 `11-20K·14薪`。
-- 校招官网模块：展示、搜索、添加、编辑、删除公司校招/内推官网入口，区分“系统已验证”与“用户已确认”两种可信来源；支持按投递状态筛选与标记（未投递 / 已投递 / 流程终止），自动记录首次投递时间与状态更新时间，并支持按当前筛选条件导出 CSV（Excel 可直接打开）。
-- Agent 发现校招官网时优先查本地官网库，未命中时通过外部搜索 + 页面内容交叉验证（域名归属、校招语义、多查询互证）动态发现；高置信度结果自动入库，证据不足时展示“待人工确认”候选卡片，绝不提供未经验证的跳转链接。
+- 支持单条和批量删除已抓取的职位。
+- 校招官网模块：展示、搜索、添加、编辑、删除、收藏公司校招/内推官网入口，区分"系统已验证"与"用户已确认"两种可信来源；支持按投递状态筛选与标记（未投递 / 看了没投 / 已投递 / 流程终止），自动记录首次投递时间、终止时间与状态更新时间，并支持按当前筛选条件导出 CSV（Excel 可直接打开）。
+- Agent 发现校招官网时优先查本地官网库，未命中时通过外部搜索 + 页面内容交叉验证（域名归属、校招语义、多查询互证）动态发现；高置信度结果自动入库，证据不足时展示"待人工确认"候选卡片，绝不提供未经验证的跳转链接。
 - Agent 每次入库操作附带数据库回执（实际写入 / 库中已有 / 未写入数量），回复末尾以真实写入结果为准，防止模型虚报入库。
-- 提供数据概览、查看记录和校招官网管理页面。
+- 提供数据概览、职位广场、投递记录和校招官网管理页面。
 
 ## 技术栈
 
@@ -68,19 +70,24 @@
 
 ```text
 .
+├── HTML-demo/              # 纯 HTML 原型演示
 ├── client/                 # React 前端
-│   ├── src/pages/          # 页面：职位广场、平台管理、简历管理、校招官网、Agent 聊天等
-│   ├── src/services/       # API 请求封装
+│   ├── src/pages/          # 页面：仪表盘、职位广场、平台管理、简历管理、投递设置、投递记录、校招官网、Agent 聊天等
+│   ├── src/components/     # 组件（Sidebar、Modal、StatCard、StatusBadge、AgentArtifacts、ModelSettingsModal 等）
+│   ├── src/services/       # API 请求封装（axios）
 │   ├── src/store/          # Zustand 状态管理
+│   ├── src/types/          # 共享类型定义
 │   └── src/utils/          # 前端显示清洗与薪资解码
 ├── server/                 # Express 后端
-│   ├── src/agent/          # LangGraph Agent、工具、提示词、会话仓储
-│   ├── src/crawlers/       # Chrome/CDP 与 BOSS 抓取逻辑
-│   ├── src/routes/         # API 路由（含校招官网 campusSites.ts）
+│   ├── src/agent/          # LangGraph Agent、工具、提示词、配置、会话仓储
+│   ├── src/crawlers/       # Chrome/CDP 浏览器管理与 BOSS/智联/51job/实习僧 抓取逻辑
+│   ├── src/routes/         # API 路由（agent、jobs、platforms、campusSites、delivery、resumes、statistics）
 │   ├── src/services/       # 职位业务、RAG 语义检索、校招官网服务
-│   ├── src/database.ts     # SQLite 表结构与种子数据
+│   ├── src/database.ts     # SQLite 表结构、索引与种子数据
+│   ├── src/platformRegistry.ts  # 平台配置注册表
 │   └── src/salaryCodec.ts  # BOSS 薪资私有字体数字解码
 ├── server/data/            # 本地数据库、Chrome profile、登录态、模型配置，已被 .gitignore 忽略
+├── 启动项目.cmd / 停止项目.cmd / 首次配置.cmd  # Windows 一键脚本
 ├── campus-recruitment-requirements.md  # 校招官网模块需求文档
 ├── package.json            # 根目录脚本
 └── README.md
@@ -107,6 +114,18 @@ npm.cmd run install:all
 ```powershell
 npm run install:all
 ```
+
+## 给别人使用
+
+本项目不需要 Docker。Windows 用户安装 Node.js 20+ 和 Google Chrome 后，按下面步骤即可运行：
+
+1. 解压项目，双击根目录的 `首次配置.cmd`。脚本会检查环境、安装根目录/前端/后端依赖、创建本地数据目录并执行构建检查。
+2. 配置完成后，双击 `启动项目.cmd`。脚本会启动前后端、轮询健康接口，服务就绪后自动打开浏览器。
+3. 使用结束后，双击 `停止项目.cmd`。
+
+首次配置需要联网下载 npm 依赖。Agent 模型可以在页面的“模型设置”中填写，不需要手动编辑 API Key；个人数据库、简历、Cookie、Chrome 登录态和模型配置都会保存在 `server/data/`，不要把这个目录分享给别人。
+
+启动脚本会检查 `3001` 和 `5173` 端口。如果端口被其他程序占用，窗口会显示对应 PID；关闭占用程序后再次启动即可。启动失败时，开发服务窗口会保留，直接查看窗口中的错误信息即可。
 
 ## 配置 Agent 模型
 
@@ -207,7 +226,10 @@ server/data/app.db
 - `jobs`：职位库，保存平台、职位名、公司名、薪资、地点、经验、学历、URL、抓取时间等。
 - `job_clicks`：点击记录，用于标记已查看职位。
 - `job_embeddings`：RAG 语义索引，按职位分块存储 512 维哈希向量与原始文本。
-- `campus_sites`：校招官网库，保存公司名、官网链接、验证状态、验证证据、来源类型（手动/Agent）、投递状态（未投递/已投递/流程终止）及首次投递、状态更新时间。
+- `campus_sites`：校招官网库，保存公司名、官网链接、域名、验证状态（系统已验证/用户已确认/未验证/验证拒绝）、验证证据、来源类型（手动/Agent）、链接类型（官方入口/内推链接/信息汇总表）、投递状态（未投递/看了没投/已投递/流程终止）、收藏标记、标签、备注及首次投递/终止/状态更新时间。
+- `agent_preferences`：用户的 Agent 求职偏好（JSON）。
+- `agent_pending_actions`：Agent 待用户确认的动作（如抓取任务），含过期时间。
+- `agent_action_logs`：Agent 工具调用日志，记录每次工具调用的输入、输出和状态。
 - `platform_accounts`：平台账号状态。
 - `resumes`：简历数据。
 - `delivery_settings`：投递设置。
@@ -238,6 +260,19 @@ GET /api/jobs?clickStatus=unclicked
 GET /api/jobs?clickStatus=clicked
 ```
 
+### RAG 语义检索
+
+在职位广场或 Agent 中，你也可以使用模糊语义查询，例如"类似 Go 后端但偏云原生方向的岗位"。后端通过本地哈希词袋向量做余弦相似度匹配：
+
+```text
+GET /api/jobs?semantic=1&keyword=云原生
+GET /api/jobs/rag/search?query=云原生&limit=10
+GET /api/jobs/rag/status                   # 查看索引覆盖情况
+POST /api/jobs/rag/reindex                 # 手动重建索引
+```
+
+语义检索会返回匹配职位的相似度得分，并同时附带索引统计信息。
+
 职位库统计接口：
 
 ```text
@@ -255,7 +290,12 @@ GET /api/jobs/library-summary
   "companyMissing": 12,
   "clicked": 8,
   "unclicked": 60,
-  "databasePath": "server/data/app.db"
+  "databasePath": "server/data/app.db",
+  "rag": {
+    "totalJobs": 65,
+    "indexedJobs": 62,
+    "chunkCount": 186
+  }
 }
 ```
 
@@ -265,43 +305,63 @@ GET /api/jobs/library-summary
 GET    /api/health
 GET    /api/statistics
 
+# Agent 配置与模型
 GET    /api/agent/status
+GET    /api/agent/config                     # 获取脱敏配置（不含 Key）
+PUT    /api/agent/config                     # 保存模型配置
+DELETE /api/agent/config/key                 # 清除存储的 API Key
+POST   /api/agent/config/test                # 测试模型连接
+
+# Agent 会话
 GET    /api/agent/conversations
 POST   /api/agent/conversations
 GET    /api/agent/conversations/:id/messages
 DELETE /api/agent/conversations/:id
-POST   /api/agent/chat                       # SSE
-POST   /api/agent/actions/:id/confirm
-POST   /api/agent/actions/:id/cancel
+POST   /api/agent/chat                       # SSE 流式输出
+POST   /api/agent/actions/:id/confirm        # 确认抓取
+POST   /api/agent/actions/:id/cancel         # 取消抓取
 
-GET    /api/platforms
-POST   /api/platforms/boss/login
+# 平台管理
+GET    /api/platforms                        # 支持 ?verify=1 实时验证登录态
+POST   /api/platforms/:name/login            # 启动浏览器扫码/登录
 DELETE /api/platforms/:name/logout
-GET    /api/platforms/:name/login-status
+GET    /api/platforms/:name/login-status     # 支持 ?verify=1 实时验证
 
+# 职位
 POST   /api/jobs/crawl
-GET    /api/jobs
+GET    /api/jobs                             # 支持 ?semantic=1 RAG 语义检索
+DELETE /api/jobs/:id                         # 删除单个职位
+POST   /api/jobs/bulk-delete                 # 批量删除职位
+POST   /api/jobs/:id/click
 GET    /api/jobs/statistics
 GET    /api/jobs/library-summary
-POST   /api/jobs/:id/click
 
+# RAG 语义索引
+GET    /api/jobs/rag/status                  # 索引状态
+POST   /api/jobs/rag/reindex                 # 重建全部索引
+GET    /api/jobs/rag/search                  # 语义搜索
+
+# 简历
 GET    /api/resumes
 POST   /api/resumes
 PUT    /api/resumes/:id
 DELETE /api/resumes/:id
 
+# 投递设置与记录
 GET    /api/delivery/settings
 PUT    /api/delivery/settings
 GET    /api/delivery/records
 
+# 校招官网
 GET    /api/campus-sites
 GET    /api/campus-sites/stats
-GET    /api/campus-sites/export
+GET    /api/campus-sites/export              # 按筛选条件导出 CSV
 GET    /api/campus-sites/:id
 POST   /api/campus-sites
-POST   /api/campus-sites/discover
+POST   /api/campus-sites/discover            # Agent 动态发现官网
 PUT    /api/campus-sites/:id
-PATCH  /api/campus-sites/:id/application-status
+PATCH  /api/campus-sites/:id/application-status   # 更新投递状态
+PATCH  /api/campus-sites/:id/favorite             # 收藏/取消收藏
 DELETE /api/campus-sites/:id
 ```
 
@@ -397,12 +457,14 @@ npm.cmd run dev
 
 ### Chrome 登录态保存在哪里
 
-在：
+各平台的登录态和浏览器 profile 统一保存在 `server/data/` 目录下：
 
 ```text
-server/data/storage-boss.json
-server/data/chrome-profile-boss/
+server/data/storage-{platform}.json      # 登录态存储
+server/data/chrome-profile-{platform}/    # Chrome 用户数据目录
 ```
+
+其中 `{platform}` 为 `boss`、`zhilian`、`51job` 或 `shixiseng`。
 
 这些文件属于本地敏感数据，不要提交到 Git。
 
@@ -412,7 +474,7 @@ server/data/chrome-profile-boss/
 - 当前使用内存 checkpointer 保存运行期 LangGraph 状态，同时将用户/助手消息持久化到 SQLite；服务重启后会从消息表恢复上下文。
 - 自动抓取稳定性受目标平台安全策略影响。
 - Agent 不会破解验证码，也不会自动投递或自动联系招聘方。
-- 抓取动作必须由用户在聊天界面确认，目前单次最多 3 页。
+- 抓取动作必须由用户在聊天界面确认，目前单次最多 5 页。
 - 部分职位信息可能只在详情页展示，列表页无法 100% 获取。
 
 ## 后续计划

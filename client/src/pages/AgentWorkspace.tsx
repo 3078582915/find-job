@@ -53,7 +53,45 @@ function nowString() {
 }
 
 function artifactsOf(message: AgentMessage) {
-  return message.metadata?.artifacts || [];
+  return mergeArtifacts([], message.metadata?.artifacts || []);
+}
+
+function normalizeCampusSiteUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    if (url.hash === '#' || url.hash === '#/') url.hash = '';
+    url.hostname = url.hostname.toLowerCase();
+    if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, '');
+    url.searchParams.sort();
+    return url.toString();
+  } catch {
+    return rawUrl.trim();
+  }
+}
+
+function campusSiteKey(site: AgentCampusSiteCard) {
+  return `${site.companyName.trim().toLowerCase()}|${normalizeCampusSiteUrl(site.url)}`;
+}
+
+function normalizeCampusSiteCard(site: AgentCampusSiteCard): AgentCampusSiteCard {
+  const isStoredRecord = site.saved
+    || site.reason === '来自本地已验证官网库'
+    || site.reason === '来自用户确认的官网记录';
+  return isStoredRecord ? { ...site, saved: true, saveable: false } : site;
+}
+
+function mergeCampusSiteCards(current: AgentCampusSiteCard, next: AgentCampusSiteCard): AgentCampusSiteCard {
+  const saved = Boolean(current.saved || next.saved);
+  return {
+    ...current,
+    ...next,
+    verificationStatus: current.verificationStatus === 'verified' || next.verificationStatus === 'verified'
+      ? 'verified'
+      : 'user_confirmed',
+    evidenceUrls: [...new Set([...(current.evidenceUrls || []), ...(next.evidenceUrls || [])])],
+    saved,
+    saveable: saved || current.saveable === false || next.saveable === false ? false : next.saveable,
+  };
 }
 
 function artifactKey(artifact: AgentArtifact) {
@@ -67,6 +105,27 @@ function mergeArtifacts(left: AgentArtifact[], right: AgentArtifact[]) {
   const merged: AgentArtifact[] = [];
   const seen = new Set<string>();
   for (const artifact of [...left, ...right]) {
+    if (artifact.kind === 'campus_sites' && artifact.campusSites?.length) {
+      let target = merged.find((item) => item.kind === 'campus_sites');
+      if (!target) {
+        target = { ...artifact, campusSites: [] };
+        merged.push(target);
+      }
+      const sites = target.campusSites || [];
+      const siteIndexes = new Map(sites.map((site, index) => [campusSiteKey(site), index]));
+      for (const site of artifact.campusSites) {
+        const key = campusSiteKey(site);
+        const existingIndex = siteIndexes.get(key);
+        if (existingIndex === undefined) {
+          siteIndexes.set(key, sites.length);
+          sites.push(normalizeCampusSiteCard(site));
+        } else {
+          sites[existingIndex] = mergeCampusSiteCards(sites[existingIndex], site);
+        }
+      }
+      target.campusSites = sites;
+      continue;
+    }
     const key = artifactKey(artifact);
     if (seen.has(key)) continue;
     seen.add(key);

@@ -52,7 +52,7 @@ function AgentCampusSiteCardView({ site, onSave }: { site: AgentCampusSiteCard; 
         </div>
         {canOpen && <a href={site.url} target="_blank" rel="noreferrer" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#D9E1E7] text-[#39536A] hover:border-accent hover:text-accent" title="打开已验证官网"><ExternalLink size={17} /></a>}
       </div>
-      {onSave && site.verificationStatus === 'verified' && site.saveable !== false && <button type="button" onClick={onSave} className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-accent px-3 py-2 text-sm text-accent hover:bg-[#FFF3EE]">保存到官网库</button>}
+      {onSave && !site.saved && site.verificationStatus === 'verified' && site.saveable !== false && <button type="button" onClick={onSave} className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-accent px-3 py-2 text-sm text-accent hover:bg-[#FFF3EE]">保存到官网库</button>}
     </article>
   );
 }

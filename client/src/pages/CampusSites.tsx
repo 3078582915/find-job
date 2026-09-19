@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Download,
@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Star,
   Trash2,
   X,
 } from 'lucide-react';
@@ -72,6 +73,7 @@ export default function CampusSites() {
   const [applicationStatus, setApplicationStatus] = useState('all');
   const [status, setStatus] = useState('active');
   const [page, setPage] = useState(1);
+  const [pageInput, setPageInput] = useState('1');
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -81,11 +83,14 @@ export default function CampusSites() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [updatingApplicationStatusId, setUpdatingApplicationStatusId] = useState<string | null>(null);
+  const [updatingFavoriteId, setUpdatingFavoriteId] = useState<string | null>(null);
+  const latestLoadRequest = useRef(0);
 
   const pageSize = 12;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const load = async () => {
+    const requestId = ++latestLoadRequest.current;
     setLoading(true);
     setError('');
     try {
@@ -98,17 +103,32 @@ export default function CampusSites() {
         applicationStatus,
         status,
       });
+      if (requestId !== latestLoadRequest.current) return;
       setRecords(result.records);
       setTotal(result.total);
       setStats(result.stats);
     } catch (err: any) {
+      if (requestId !== latestLoadRequest.current) return;
       setError(err?.response?.data?.error || err?.message || '加载校招官网失败');
     } finally {
-      setLoading(false);
+      if (requestId === latestLoadRequest.current) setLoading(false);
     }
   };
 
-  useEffect(() => { void load(); }, [page, sourceType, verificationStatus, applicationStatus, status, keyword]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [page, sourceType, verificationStatus, applicationStatus, status, keyword]);
+  useEffect(() => { setPageInput(String(page)); }, [page]);
+
+  const jumpToPage = () => {
+    const target = Number.parseInt(pageInput, 10);
+    if (!Number.isFinite(target)) {
+      setPageInput(String(page));
+      return;
+    }
+    setPage(Math.min(totalPages, Math.max(1, target)));
+  };
 
   const tagsForForm = useMemo(() => form.tags.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean), [form.tags]);
 
@@ -187,6 +207,20 @@ export default function CampusSites() {
       setError(err?.response?.data?.error || err?.message || '投递状态保存失败');
     } finally {
       setUpdatingApplicationStatusId(null);
+    }
+  };
+
+  const toggleFavorite = async (site: CampusSite) => {
+    if (updatingFavoriteId === site.id) return;
+    setUpdatingFavoriteId(site.id);
+    setError('');
+    try {
+      await api.updateCampusSiteFavorite(site.id, !site.is_favorite);
+      await load();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || '收藏状态保存失败');
+    } finally {
+      setUpdatingFavoriteId(null);
     }
   };
 
@@ -269,7 +303,7 @@ export default function CampusSites() {
           <option value="all">全部验证状态</option><option value="verified">系统已验证</option><option value="user_confirmed">用户已确认</option><option value="unverified">未验证</option><option value="rejected">验证拒绝</option>
         </select>
         <select value={applicationStatus} onChange={(event) => { setApplicationStatus(event.target.value); setPage(1); }} className="rounded-md border border-[#D9E1E7] bg-[#FAFCFD] px-3 py-2.5 text-sm">
-          <option value="all">全部投递状态</option><option value="not_applied">未投递</option><option value="applied">已投递</option><option value="terminated">流程终止</option>
+          <option value="all">全部投递状态</option><option value="not_applied">未投递</option><option value="viewed_not_applied">看了没投</option><option value="applied">已投递</option><option value="terminated">流程终止</option>
         </select>
         <select value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }} className="rounded-md border border-[#D9E1E7] bg-[#FAFCFD] px-3 py-2.5 text-sm">
           <option value="all">全部状态</option><option value="active">正常</option><option value="inactive">失效</option>
@@ -314,6 +348,7 @@ export default function CampusSites() {
                     <div className="mt-2 break-all text-xs text-[#8A98A3]">{site.official_url}</div>
                     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#71818E]">
                       <span>首次投递：{site.applied_at ? formatTime(site.applied_at) : '未记录'}</span>
+                      <span>终止时间：{site.terminated_at ? formatTime(site.terminated_at) : '未记录'}</span>
                       <span>状态更新：{site.application_status_updated_at ? formatTime(site.application_status_updated_at) : '未记录'}</span>
                     </div>
                     {parseTags(site.tags).length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{parseTags(site.tags).map((tag) => <span key={tag} className="rounded bg-[#F4FAFF] px-2 py-1 text-xs text-[#3E6D8E]">{tag}</span>)}</div>}
@@ -326,14 +361,25 @@ export default function CampusSites() {
                         value={site.application_status}
                         disabled={updatingApplicationStatusId === site.id}
                         onChange={(event) => void updateApplicationStatus(site, event.target.value as CampusApplicationStatus)}
-                        className={`rounded-md border px-2.5 py-1.5 text-xs outline-none focus:border-accent ${site.application_status === 'applied' ? 'border-[#B8DEC9] bg-[#EFFAF5] text-[#17865D]' : site.application_status === 'terminated' ? 'border-[#F1B5B5] bg-[#FFF0F0] text-[#B42318]' : 'border-[#D9E1E7] bg-[#FAFCFD] text-[#39536A]'}`}
+                        className={`rounded-md border px-2.5 py-1.5 text-xs outline-none focus:border-accent ${site.application_status === 'applied' ? 'border-[#B8DEC9] bg-[#EFFAF5] text-[#17865D]' : site.application_status === 'terminated' ? 'border-[#F1B5B5] bg-[#FFF0F0] text-[#B42318]' : site.application_status === 'viewed_not_applied' ? 'border-[#E8D5A8] bg-[#FFF8EC] text-[#A96116]' : 'border-[#D9E1E7] bg-[#FAFCFD] text-[#39536A]'}`}
                       >
                         <option value="not_applied">未投递</option>
+                        <option value="viewed_not_applied">看了没投</option>
                         <option value="applied">已投递</option>
                         <option value="terminated">流程终止</option>
                       </select>
                     </label>
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void toggleFavorite(site)}
+                        disabled={updatingFavoriteId === site.id}
+                        className={`inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors disabled:opacity-50 ${site.is_favorite ? 'border-[#E8C56A] bg-[#FFF8EC] text-[#D08A16] hover:bg-[#FFF2D4]' : 'border-[#D9E1E7] text-[#71818E] hover:border-[#E8C56A] hover:text-[#D08A16]'}`}
+                        title={site.is_favorite ? '取消收藏' : '收藏链接'}
+                        aria-label={site.is_favorite ? '取消收藏' : '收藏链接'}
+                      >
+                        <Star size={15} fill={site.is_favorite ? 'currentColor' : 'none'} />
+                      </button>
                     {openable ? (
                       <button type="button" onClick={() => openSite(site)} className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-[#EB5C2A]">
                         <ExternalLink size={14} />打开链接
@@ -347,10 +393,25 @@ export default function CampusSites() {
               </article>
             );
           })}
-          {totalPages > 1 && <div className="flex items-center justify-center gap-3 pt-3 text-sm text-[#7F8C8D]">
+          {totalPages > 1 && <div className="flex flex-wrap items-center justify-center gap-3 pt-3 text-sm text-[#7F8C8D]">
             <button type="button" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-md border border-[#D9E1E7] px-3 py-1.5 disabled:opacity-40">上一页</button>
-            <span>{page} / {totalPages}</span>
+            <span>第 {page} / {totalPages} 页</span>
             <button type="button" disabled={page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} className="rounded-md border border-[#D9E1E7] px-3 py-1.5 disabled:opacity-40">下一页</button>
+            <div className="flex items-center gap-2">
+              <label htmlFor="campus-page-input" className="text-xs text-[#71818E]">跳转到</label>
+              <input
+                id="campus-page-input"
+                type="number"
+                min={1}
+                max={totalPages}
+                value={pageInput}
+                onChange={(event) => setPageInput(event.target.value)}
+                onKeyDown={(event) => { if (event.key === 'Enter') jumpToPage(); }}
+                className="w-16 rounded-md border border-[#D9E1E7] px-2 py-1.5 text-center text-sm text-[#39536A] outline-none focus:border-accent"
+                aria-label="跳转页码"
+              />
+              <button type="button" onClick={jumpToPage} className="rounded-md border border-[#D9E1E7] px-3 py-1.5 text-[#39536A] hover:border-accent hover:text-accent">跳转</button>
+            </div>
           </div>}
         </div>
       )}

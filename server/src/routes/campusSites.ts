@@ -13,6 +13,7 @@ import {
   exportCampusSitesCsv,
   updateCampusSite,
   updateCampusSiteApplicationStatus,
+  updateCampusSiteFavorite,
 } from '../services/campusSiteService';
 
 const router = Router();
@@ -132,6 +133,15 @@ router.patch('/campus-sites/:id/application-status', (req, res) => {
   } catch (error) {
     return errorResponse(res, error);
   }
+});
+
+router.patch('/campus-sites/:id/favorite', (req, res) => {
+  if (typeof req.body.isFavorite !== 'boolean') {
+    return res.status(400).json({ error: '收藏状态不正确' });
+  }
+  const record = updateCampusSiteFavorite(text(req.params.id, 80), req.body.isFavorite);
+  if (!record) return res.status(404).json({ error: '校招官网不存在' });
+  res.json(record);
 });
 
 router.delete('/campus-sites/:id', (req, res) => {

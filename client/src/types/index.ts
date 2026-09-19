@@ -218,7 +218,7 @@ export interface AgentJobCard {
 export type CampusVerificationStatus = 'verified' | 'user_confirmed' | 'unverified' | 'rejected';
 export type CampusVerificationMethod = 'official_domain' | 'official_referral' | 'manual' | null;
 export type CampusSiteKind = 'official_site' | 'referral_link' | 'aggregated_reference';
-export type CampusApplicationStatus = 'not_applied' | 'applied' | 'terminated';
+export type CampusApplicationStatus = 'not_applied' | 'viewed_not_applied' | 'applied' | 'terminated';
 
 export interface CampusSite {
   id: string;
@@ -233,8 +233,10 @@ export interface CampusSite {
   verification_method: CampusVerificationMethod;
   verification_evidence: string | null;
   site_kind: CampusSiteKind;
+  is_favorite: boolean;
   application_status: CampusApplicationStatus;
   applied_at: string | null;
+  terminated_at: string | null;
   application_status_updated_at: string | null;
   status: 'active' | 'inactive';
   tags: string | null;

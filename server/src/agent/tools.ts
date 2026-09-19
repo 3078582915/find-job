@@ -15,6 +15,7 @@ import {
   createCampusSite,
   discoverCampusSites,
   findCampusSiteCandidates,
+  getCampusSiteById,
   getVerifiedRegistryCandidate,
   searchCampusSites,
 } from '../services/campusSiteService';
@@ -296,6 +297,8 @@ export function createAgentTools(context: ToolContext) {
         evidenceUrls: evidenceUrls(site.verification_evidence, site.official_url),
         siteKind: site.site_kind || 'official_site',
         reason: site.verification_status === 'verified' ? '来自本地已验证官网库' : '来自用户确认的官网记录',
+        saved: true,
+        saveable: false,
       }));
       return toolResult(
         sites.length ? `本地官网库找到 ${sites.length} 个可用入口。` : '本地官网库没有匹配的校招官网。',
@@ -340,8 +343,9 @@ export function createAgentTools(context: ToolContext) {
       if (result.verified.length) {
         const primary = result.verified[0];
         let saved = false;
+        let recordId: string | undefined;
         try {
-          createCampusSite({
+          const record = createCampusSite({
             companyName: primary.companyName,
             siteName: primary.siteName,
             officialUrl: primary.url,
@@ -356,6 +360,7 @@ export function createAgentTools(context: ToolContext) {
             tags: ['校招', '官方入口'],
           });
           saved = true;
+          recordId = record.id;
         } catch (error) {
           if (!(error instanceof CampusSiteDuplicateError)) throw error;
         }
@@ -370,6 +375,7 @@ export function createAgentTools(context: ToolContext) {
               savedCount: saved ? 1 : 0,
               existingCount: saved ? 0 : 1,
               failedCount: 0,
+              recordIds: recordId ? [recordId] : [],
             },
           },
         );
@@ -415,10 +421,13 @@ export function createAgentTools(context: ToolContext) {
           tags: input.tags,
           notes: input.notes,
         });
+        if (!getCampusSiteById(record.id)) {
+          throw new Error('校招官网写入后复核失败，数据库中未找到该记录');
+        }
         return toolResult('已保存到校招官网库。', {
           kind: 'campus_sites',
           campusSites: [{ ...candidate, saved: true }],
-          persistence: { operation: 'save_campus_site', status: 'saved', savedCount: 1, existingCount: 0, failedCount: 0, recordId: record.id },
+          persistence: { operation: 'save_campus_site', status: 'saved', savedCount: 1, existingCount: 0, failedCount: 0, recordId: record.id, recordIds: [record.id] },
         });
       } catch (error) {
         if (!(error instanceof CampusSiteDuplicateError)) throw error;
@@ -461,6 +470,9 @@ export function createAgentTools(context: ToolContext) {
             tags: site.tags,
             notes: site.notes,
           });
+          if (!getCampusSiteById(record.id)) {
+            throw new Error('校招官网写入后复核失败，数据库中未找到该记录');
+          }
           saved.push(record);
         } catch (error) {
           const item = {
@@ -499,6 +511,7 @@ export function createAgentTools(context: ToolContext) {
             savedCount: saved.length,
             existingCount: existing.length,
             failedCount: failed.length,
+            recordIds: saved.map((record) => record.id),
           },
           savedCount: saved.length,
           existingCount: existing.length,

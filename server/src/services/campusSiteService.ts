@@ -5,7 +5,7 @@ export type CampusSourceType = 'manual' | 'agent';
 export type CampusVerificationStatus = 'verified' | 'user_confirmed' | 'unverified' | 'rejected';
 export type CampusVerificationMethod = 'official_domain' | 'official_referral' | 'manual' | null;
 export type CampusSiteKind = 'official_site' | 'referral_link' | 'aggregated_reference';
-export type CampusApplicationStatus = 'not_applied' | 'applied' | 'terminated';
+export type CampusApplicationStatus = 'not_applied' | 'viewed_not_applied' | 'applied' | 'terminated';
 
 export interface CampusSite {
   id: string;
@@ -20,8 +20,10 @@ export interface CampusSite {
   verification_method: CampusVerificationMethod;
   verification_evidence: string | null;
   site_kind: CampusSiteKind;
+  is_favorite: boolean;
   application_status: CampusApplicationStatus;
   applied_at: string | null;
+  terminated_at: string | null;
   application_status_updated_at: string | null;
   status: 'active' | 'inactive';
   tags: string | null;
@@ -42,6 +44,8 @@ export interface CampusSiteCandidate {
   evidenceUrls: string[];
   siteKind: CampusSiteKind;
   reason: string;
+  saved?: boolean;
+  saveable?: boolean;
 }
 
 export interface CampusSiteSearchCandidate {
@@ -197,7 +201,11 @@ function mapRow(row: any): CampusSite {
     source_type: row.source_type as CampusSourceType,
     verification_status: row.verification_status as CampusVerificationStatus,
     verification_method: row.verification_method as CampusVerificationMethod,
+    is_favorite: Boolean(row.is_favorite),
     application_status: (row.application_status || 'not_applied') as CampusApplicationStatus,
+    applied_at: row.applied_at || null,
+    terminated_at: row.terminated_at || null,
+    application_status_updated_at: row.application_status_updated_at || null,
     status: row.status as CampusSite['status'],
   };
 }
@@ -218,9 +226,9 @@ export function listCampusSites(options: CampusSiteListOptions & {
   const params: unknown[] = [];
   const keyword = normalizeText(options.keyword, 100);
   if (keyword) {
-    where.push('(company_name LIKE ? OR site_name LIKE ? OR domain LIKE ? OR tags LIKE ?)');
+    where.push('(company_name LIKE ? OR site_name LIKE ? OR domain LIKE ? OR official_url LIKE ? OR tags LIKE ?)');
     const value = `%${keyword}%`;
-    params.push(value, value, value, value);
+    params.push(value, value, value, value, value);
   }
   if (options.sourceType && options.sourceType !== 'all') {
     where.push('source_type = ?');
@@ -245,7 +253,8 @@ export function listCampusSites(options: CampusSiteListOptions & {
   const records = db.prepare(`
     SELECT * FROM campus_sites
     WHERE ${where.join(' AND ')}
-    ORDER BY CASE verification_status WHEN 'verified' THEN 0 WHEN 'user_confirmed' THEN 1 ELSE 2 END,
+    ORDER BY is_favorite DESC,
+             CASE verification_status WHEN 'verified' THEN 0 WHEN 'user_confirmed' THEN 1 ELSE 2 END,
              updated_at DESC, company_name ASC
     LIMIT ? OFFSET ?
   `).all(...params, limit, offset).map(mapRow);
@@ -302,22 +311,23 @@ export function createCampusSite(input: CampusSiteInput) {
   }
 
   const duplicate = db.prepare(
-    'SELECT id FROM campus_sites WHERE company_name = ? AND domain = ? LIMIT 1'
-  ).get(companyName, domain) as { id: string } | undefined;
-  if (duplicate) throw new CampusSiteDuplicateError('该公司已经存在相同域名的官网记录');
+    'SELECT id FROM campus_sites WHERE company_name = ? AND official_url = ? LIMIT 1'
+  ).get(companyName, raw) as { id: string } | undefined;
+  if (duplicate) throw new CampusSiteDuplicateError('该公司已经存在相同链接的官网记录');
 
   const now = new Date().toISOString();
   const id = uuidv4();
   const applicationStatus = input.applicationStatus || 'not_applied';
   const appliedAt = applicationStatus === 'applied' ? now : null;
+  const terminatedAt = applicationStatus === 'terminated' ? now : null;
   const applicationStatusUpdatedAt = applicationStatus === 'not_applied' ? null : now;
   db.prepare(`
     INSERT INTO campus_sites (
       id, company_name, site_name, official_url, domain, source_type, source_query,
       confidence, verification_status, verification_method, verification_evidence,
-      site_kind, application_status, applied_at, application_status_updated_at,
+      site_kind, application_status, applied_at, terminated_at, application_status_updated_at,
       status, tags, notes, last_checked_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
   `).run(
     id,
     companyName,
@@ -333,6 +343,7 @@ export function createCampusSite(input: CampusSiteInput) {
     siteKind,
     applicationStatus,
     appliedAt,
+    terminatedAt,
     applicationStatusUpdatedAt,
     normalizeTags(input.tags),
     normalizeText(input.notes, 1000) || null,
@@ -340,25 +351,42 @@ export function createCampusSite(input: CampusSiteInput) {
     now,
     now,
   );
-  return getCampusSiteById(id)!;
+  const persisted = getCampusSiteById(id);
+  if (!persisted) throw new Error('校招官网写入后校验失败，数据库中未找到新记录');
+  return persisted;
 }
 
 export function updateCampusSiteApplicationStatus(id: string, applicationStatus: CampusApplicationStatus) {
-  if (applicationStatus !== 'not_applied' && applicationStatus !== 'applied' && applicationStatus !== 'terminated') {
+  if (applicationStatus !== 'not_applied' && applicationStatus !== 'viewed_not_applied' && applicationStatus !== 'applied' && applicationStatus !== 'terminated') {
     throw new CampusSiteInputError('投递状态不正确');
   }
   const current = getCampusSiteById(id);
   if (!current) return null;
   if (current.application_status === applicationStatus) return current;
   const now = new Date().toISOString();
-  const appliedAt = applicationStatus === 'not_applied'
+  const appliedAt = applicationStatus === 'not_applied' || applicationStatus === 'viewed_not_applied'
     ? null
     : applicationStatus === 'applied'
       ? (current.applied_at || now)
       : current.applied_at;
+  const terminatedAt = applicationStatus === 'terminated'
+    ? (current.terminated_at || now)
+    : null;
   const result = db.prepare(
-    'UPDATE campus_sites SET application_status = ?, applied_at = ?, application_status_updated_at = ?, updated_at = ? WHERE id = ?'
-  ).run(applicationStatus, appliedAt, now, now, id);
+    'UPDATE campus_sites SET application_status = ?, applied_at = ?, terminated_at = ?, application_status_updated_at = ?, updated_at = ? WHERE id = ?'
+  ).run(applicationStatus, appliedAt, terminatedAt, now, now, id);
+  return result.changes ? getCampusSiteById(id) : null;
+}
+
+export function updateCampusSiteFavorite(id: string, isFavorite: boolean) {
+  const current = getCampusSiteById(id);
+  if (!current) return null;
+  if (current.is_favorite === isFavorite) return current;
+
+  const now = new Date().toISOString();
+  const result = db.prepare(
+    'UPDATE campus_sites SET is_favorite = ?, updated_at = ? WHERE id = ?'
+  ).run(isFavorite ? 1 : 0, now, id);
   return result.changes ? getCampusSiteById(id) : null;
 }
 
@@ -387,9 +415,9 @@ export function exportCampusSitesCsv(options: CampusSiteListOptions = {}) {
   const params: unknown[] = [];
   const keyword = normalizeText(options.keyword, 100);
   if (keyword) {
-    where.push('(company_name LIKE ? OR site_name LIKE ? OR domain LIKE ? OR tags LIKE ?)');
+    where.push('(company_name LIKE ? OR site_name LIKE ? OR domain LIKE ? OR official_url LIKE ? OR tags LIKE ?)');
     const value = `%${keyword}%`;
-    params.push(value, value, value, value);
+    params.push(value, value, value, value, value);
   }
   if (options.sourceType && options.sourceType !== 'all') {
     where.push('source_type = ?');
@@ -411,11 +439,13 @@ export function exportCampusSitesCsv(options: CampusSiteListOptions = {}) {
   const records = db.prepare(`
     SELECT * FROM campus_sites
     WHERE ${where.join(' AND ')}
-    ORDER BY CASE verification_status WHEN 'verified' THEN 0 WHEN 'user_confirmed' THEN 1 ELSE 2 END,
+    ORDER BY is_favorite DESC,
+             CASE verification_status WHEN 'verified' THEN 0 WHEN 'user_confirmed' THEN 1 ELSE 2 END,
              updated_at DESC, company_name ASC
   `).all(...params).map(mapRow);
   const statusLabels: Record<CampusApplicationStatus, string> = {
     not_applied: '未投递',
+    viewed_not_applied: '看了没投',
     applied: '已投递',
     terminated: '流程终止',
   };
@@ -431,14 +461,16 @@ export function exportCampusSitesCsv(options: CampusSiteListOptions = {}) {
     referral_link: '内推链接',
     aggregated_reference: '信息汇总表',
   };
-  const headers = ['公司名称', '官网名称', '官网链接', '域名', '投递状态', '首次投递时间', '投递状态更新时间', '官网状态', '验证状态', '来源', '链接类型', '置信度', '标签', '备注', '创建时间', '记录更新时间'];
+  const headers = ['公司名称', '官网名称', '官网链接', '域名', '是否收藏', '投递状态', '首次投递时间', '终止时间', '投递状态更新时间', '官网状态', '验证状态', '来源', '链接类型', '置信度', '标签', '备注', '创建时间', '记录更新时间'];
   const rows = records.map((site) => [
     site.company_name,
     site.site_name || '',
     site.official_url,
     site.domain,
+    site.is_favorite ? '是' : '否',
     statusLabels[site.application_status],
     formatExportTime(site.applied_at),
+    formatExportTime(site.terminated_at),
     formatExportTime(site.application_status_updated_at),
     site.status === 'active' ? '正常' : '失效',
     verificationLabels[site.verification_status],
@@ -461,9 +493,9 @@ export function updateCampusSite(id: string, input: Partial<CampusSiteInput> & {
   const url = input.officialUrl === undefined ? current.official_url : ensureSafeUrl(input.officialUrl).raw;
   const domain = ensureSafeUrl(url).domain;
   const duplicate = db.prepare(
-    'SELECT id FROM campus_sites WHERE company_name = ? AND domain = ? AND id <> ? LIMIT 1'
-  ).get(companyName, domain, id) as { id: string } | undefined;
-  if (duplicate) throw new CampusSiteDuplicateError('该公司已经存在相同域名的官网记录');
+    'SELECT id FROM campus_sites WHERE company_name = ? AND official_url = ? AND id <> ? LIMIT 1'
+  ).get(companyName, url, id) as { id: string } | undefined;
+  if (duplicate) throw new CampusSiteDuplicateError('该公司已经存在相同链接的官网记录');
 
   const nextStatus = input.status || current.status;
   const now = new Date().toISOString();
@@ -647,6 +679,8 @@ function localCandidate(site: CampusSite): CampusSiteCandidate {
     })(),
     siteKind: site.site_kind || 'official_site',
     reason: site.verification_status === 'verified' ? '来自本地已验证官网库' : '来自用户确认的官网记录',
+    saved: true,
+    saveable: false,
   };
 }
 

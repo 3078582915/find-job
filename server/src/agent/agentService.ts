@@ -14,6 +14,7 @@ import {
   type AgentMessageRecord,
 } from './repository';
 import { PLATFORM_CONFIG, isSupportedPlatform } from '../platformRegistry';
+import { getCampusSiteById } from '../services/campusSiteService';
 
 export interface AgentArtifact {
   kind: string;
@@ -177,16 +178,76 @@ function artifactKey(artifact: AgentArtifact) {
   return JSON.stringify(artifact);
 }
 
-function campusPersistenceReceipt(artifacts: AgentArtifact[]) {
-  const receipts = artifacts
-    .map((artifact) => artifact.persistence as any)
-    .filter((receipt) => receipt?.operation === 'save_campus_site' || receipt?.operation === 'save_user_confirmed_campus_sites');
+function campusPersistenceReceipt(receipts: any[]) {
   if (!receipts.length) return '';
 
-  const savedCount = receipts.reduce((total, receipt) => total + Number(receipt.savedCount || 0), 0);
+  const reportedSavedCount = receipts.reduce((total, receipt) => total + Number(receipt.savedCount || 0), 0);
+  const recordIds = [...new Set(receipts.flatMap((receipt) => Array.isArray(receipt.recordIds) ? receipt.recordIds : []))];
+  const verifiedSavedCount = recordIds.filter((id) => typeof id === 'string' && Boolean(getCampusSiteById(id))).length;
   const existingCount = receipts.reduce((total, receipt) => total + Number(receipt.existingCount || 0), 0);
-  const failedCount = receipts.reduce((total, receipt) => total + Number(receipt.failedCount || 0), 0);
-  return `数据库入库回执：本次实际写入 ${savedCount} 条，库中已有 ${existingCount} 条，未写入 ${failedCount} 条。以上数量以数据库写入结果为准。`;
+  const reportedFailedCount = receipts.reduce((total, receipt) => total + Number(receipt.failedCount || 0), 0);
+  const processedCount = reportedSavedCount + existingCount + reportedFailedCount;
+  const unverifiableCount = Math.max(0, reportedSavedCount - verifiedSavedCount);
+  const failedCount = reportedFailedCount + unverifiableCount;
+  return `数据库入库回执：本轮处理 ${processedCount} 条，新增 ${reportedSavedCount} 条（写入后复核成功 ${verifiedSavedCount} 条），本轮重复未新增 ${existingCount} 条，失败 ${failedCount} 条。该回执为本轮操作统计，不代表库内总记录数。`;
+}
+
+function normalizeCampusSiteUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    if (url.hash === '#' || url.hash === '#/') url.hash = '';
+    url.hostname = url.hostname.toLowerCase();
+    if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, '');
+    url.searchParams.sort();
+    return url.toString();
+  } catch {
+    return rawUrl.trim();
+  }
+}
+
+function campusSiteCardKey(site: any) {
+  return `${String(site?.companyName || '').trim().toLowerCase()}|${normalizeCampusSiteUrl(String(site?.url || ''))}`;
+}
+
+function coalesceCampusSiteArtifacts(artifacts: AgentArtifact[]) {
+  const merged: AgentArtifact[] = [];
+  let campusArtifact: AgentArtifact | undefined;
+  const campusSiteIndexes = new Map<string, number>();
+
+  for (const artifact of artifacts) {
+    const sites = Array.isArray(artifact.campusSites) ? artifact.campusSites as any[] : [];
+    if (artifact.kind !== 'campus_sites' || !sites.length) {
+      merged.push(artifact);
+      continue;
+    }
+    if (!campusArtifact) {
+      campusArtifact = { kind: 'campus_sites', campusSites: [] };
+      merged.push(campusArtifact);
+    }
+    const mergedSites = campusArtifact.campusSites as any[];
+    for (const site of sites) {
+      const key = campusSiteCardKey(site);
+      const existingIndex = campusSiteIndexes.get(key);
+      if (existingIndex === undefined) {
+        campusSiteIndexes.set(key, mergedSites.length);
+        mergedSites.push(site);
+        continue;
+      }
+      const current = mergedSites[existingIndex];
+      const saved = Boolean(current.saved || site.saved);
+      mergedSites[existingIndex] = {
+        ...current,
+        ...site,
+        verificationStatus: current.verificationStatus === 'verified' || site.verificationStatus === 'verified'
+          ? 'verified'
+          : 'user_confirmed',
+        evidenceUrls: [...new Set([...(current.evidenceUrls || []), ...(site.evidenceUrls || [])])],
+        saved,
+        saveable: saved || current.saveable === false || site.saveable === false ? false : site.saveable,
+      };
+    }
+  }
+  return merged;
 }
 
 function hasCampusSaveIntent(message: string) {
@@ -335,6 +396,7 @@ export async function runAgentConversation(
   let finalOutput: any = null;
   const artifacts: AgentArtifact[] = [];
   const seenArtifacts = new Set<string>();
+  const persistenceReceipts: any[] = [];
   const knownToolNames = new Set<string>(tools.map((item) => item.name));
 
   const eventStream = agent.streamEvents(
@@ -364,6 +426,10 @@ export async function runAgentConversation(
 
     if (event.event === 'on_tool_end' && knownToolNames.has(event.name)) {
       const parsed = parseToolOutput((event.data as any)?.output);
+      const persistence = parsed?.artifact?.persistence;
+      if (persistence?.operation === 'save_campus_site' || persistence?.operation === 'save_user_confirmed_campus_sites') {
+        persistenceReceipts.push(persistence);
+      }
       callbacks.onToolEnd?.(event.name, parsed);
       const artifact = parsed?.artifact;
       if (artifact && typeof artifact === 'object') {
@@ -394,15 +460,16 @@ export async function runAgentConversation(
     seenArtifacts,
     callbacks,
   );
-  const persistenceReceipt = campusPersistenceReceipt(artifacts);
+  const persistenceReceipt = campusPersistenceReceipt(persistenceReceipts);
   if (persistenceReceipt) {
     finalText = `${finalText}\n\n${persistenceReceipt}`;
   } else if (hasCampusSaveIntent(lastUserMessage)) {
     finalText = `${finalText}\n\n数据库入库回执：本轮没有检测到成功的校招官网入库操作，请不要把上面的描述当作已入库结果。`;
   }
   activeThreads.add(conversationId);
-  const message = appendMessage(conversationId, 'assistant', finalText, { artifacts });
-  return { message, artifacts };
+  const mergedArtifacts = coalesceCampusSiteArtifacts(artifacts);
+  const message = appendMessage(conversationId, 'assistant', finalText, { artifacts: mergedArtifacts });
+  return { message, artifacts: mergedArtifacts };
 }
 
 export async function clearAgentThread(conversationId: string) {

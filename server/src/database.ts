@@ -116,8 +116,10 @@ db.exec(`
     verification_method TEXT,
     verification_evidence TEXT,
     site_kind TEXT NOT NULL DEFAULT 'official_site',
+    is_favorite INTEGER NOT NULL DEFAULT 0,
     application_status TEXT NOT NULL DEFAULT 'not_applied',
     applied_at DATETIME,
+    terminated_at DATETIME,
     application_status_updated_at DATETIME,
     status TEXT NOT NULL DEFAULT 'active',
     tags TEXT,
@@ -199,17 +201,26 @@ const campusSiteColumns = db.prepare('PRAGMA table_info(campus_sites)').all() as
 if (!campusSiteColumns.some((column) => column.name === 'site_kind')) {
   db.exec("ALTER TABLE campus_sites ADD COLUMN site_kind TEXT NOT NULL DEFAULT 'official_site'");
 }
+if (!campusSiteColumns.some((column) => column.name === 'is_favorite')) {
+  db.exec('ALTER TABLE campus_sites ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0');
+}
 if (!campusSiteColumns.some((column) => column.name === 'application_status')) {
   db.exec("ALTER TABLE campus_sites ADD COLUMN application_status TEXT NOT NULL DEFAULT 'not_applied'");
 }
 if (!campusSiteColumns.some((column) => column.name === 'applied_at')) {
   db.exec('ALTER TABLE campus_sites ADD COLUMN applied_at DATETIME');
 }
+if (!campusSiteColumns.some((column) => column.name === 'terminated_at')) {
+  db.exec('ALTER TABLE campus_sites ADD COLUMN terminated_at DATETIME');
+}
 if (!campusSiteColumns.some((column) => column.name === 'application_status_updated_at')) {
   db.exec('ALTER TABLE campus_sites ADD COLUMN application_status_updated_at DATETIME');
 }
 // “未投递”不应保留投递时间，兼容此前保留历史时间的版本。
 db.exec("UPDATE campus_sites SET applied_at = NULL WHERE application_status = 'not_applied' AND applied_at IS NOT NULL");
+// 兼容此前只有状态更新时间的“流程终止”记录，将历史更新时间作为终止时间。
+db.exec("UPDATE campus_sites SET terminated_at = COALESCE(application_status_updated_at, updated_at, created_at) WHERE application_status = 'terminated' AND terminated_at IS NULL");
+db.exec('CREATE INDEX IF NOT EXISTS idx_campus_sites_favorite ON campus_sites(is_favorite, updated_at)');
 
 const legacyLagouAccount = db.prepare(
   "SELECT id FROM platform_accounts WHERE platform_name = 'lagou' LIMIT 1"

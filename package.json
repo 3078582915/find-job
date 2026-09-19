@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "chcp 65001 > nul && set \"NODE_OPTIONS=--use-env-proxy\" && concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev": "chcp 65001 > nul && set \"NODE_USE_ENV_PROXY=1\" && concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "chcp 65001 > nul && npm --prefix client run dev",
     "dev:server": "chcp 65001 > nul && npm --prefix server run dev",
     "build": "npm run build --prefix server && npm run build --prefix client",

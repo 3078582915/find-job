@@ -29,4 +29,3 @@ if errorlevel 1 (
   echo Some project services could not be stopped. Try running this file as administrator.
 )
 pause
-pause
