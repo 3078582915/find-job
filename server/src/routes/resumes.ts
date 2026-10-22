@@ -16,7 +16,10 @@ router.get('/resumes', (_req, res) => {
 // 创建简历
 router.post('/resumes', (req, res) => {
   const { name, content, isDefault } = req.body;
-  if (!name) return res.status(400).json({ error: '简历名称不能为空' });
+  if (typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: '简历名称不能为空' });
+  }
+  const trimmedName = name.trim();
 
   const id = uuidv4();
 
@@ -26,7 +29,7 @@ router.post('/resumes', (req, res) => {
 
   db.prepare(
     'INSERT INTO resumes (id, user_id, name, content, is_default) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, DEMO_USER_ID, name, JSON.stringify(content || {}), isDefault ? 1 : 0);
+  ).run(id, DEMO_USER_ID, trimmedName, JSON.stringify(content || {}), isDefault ? 1 : 0);
 
   const resume = db.prepare('SELECT * FROM resumes WHERE id = ?').get(id);
   res.status(201).json(resume);
@@ -40,13 +43,21 @@ router.put('/resumes/:id', (req, res) => {
   const existing = db.prepare('SELECT * FROM resumes WHERE id = ? AND user_id = ?').get(id, DEMO_USER_ID);
   if (!existing) return res.status(404).json({ error: '简历不存在' });
 
+  let trimmedName: string | null = null;
+  if (name !== undefined) {
+    if (typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: '简历名称不能为空' });
+    }
+    trimmedName = name.trim();
+  }
+
   if (isDefault) {
     db.prepare('UPDATE resumes SET is_default = 0 WHERE user_id = ?').run(DEMO_USER_ID);
   }
 
   db.prepare(
     'UPDATE resumes SET name = COALESCE(?, name), content = COALESCE(?, content), is_default = COALESCE(?, is_default) WHERE id = ?'
-  ).run(name, content ? JSON.stringify(content) : null, isDefault !== undefined ? (isDefault ? 1 : 0) : null, id);
+  ).run(trimmedName, content ? JSON.stringify(content) : null, isDefault !== undefined ? (isDefault ? 1 : 0) : null, id);
 
   const resume = db.prepare('SELECT * FROM resumes WHERE id = ?').get(id);
   res.json(resume);

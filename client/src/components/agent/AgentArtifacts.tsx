@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import {
   AlertCircle,
   BarChart3,
   Building2,
   Check,
+  ChevronDown,
+  ChevronUp,
   ExternalLink,
   Loader2,
   MapPin,
@@ -37,23 +40,59 @@ interface Props {
 }
 
 function AgentCampusSiteCardView({ site, onSave }: { site: AgentCampusSiteCard; onSave?: () => void }) {
+  const [showDetails, setShowDetails] = useState(false);
   const canOpen = site.verificationStatus === 'verified' || site.verificationStatus === 'user_confirmed';
   const siteKindLabel = site.siteKind === 'referral_link' ? '内推链接' : site.siteKind === 'aggregated_reference' ? '信息汇总表' : '官方入口';
+  const openLabel = site.verificationStatus === 'verified' ? '打开官网' : '打开链接';
   return (
-    <article className="rounded-md border border-[#DFE6EC] bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
+    <article className="rounded-md border border-[#DFE6EC] bg-white px-3.5 py-3 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2"><h3 className="text-[15px] font-semibold text-[#17324D]">{site.companyName}</h3><span className="rounded-full bg-[#EFFAF5] px-2 py-0.5 text-xs text-[#17865D]">{site.verificationStatus === 'verified' ? '系统已验证' : '用户已确认'}</span>{site.saved && <span className="rounded-full bg-[#EEF5FF] px-2 py-0.5 text-xs text-[#2E6B9A]">已入库</span>}</div>
-          <div className="mt-1 text-sm text-[#5E6F7E]">{site.siteName}</div>
-          <div className="mt-2 text-xs text-[#788895]">{site.domain} · {siteKindLabel} · {site.verificationMethod === 'official_referral' ? '官方引荐验证' : site.verificationMethod === 'manual' ? '用户确认' : '官方域名验证'}</div>
-          <div className="mt-2 break-all text-xs text-[#8A98A3]">{site.url}</div>
-          <div className="mt-2 text-xs text-[#3E6D8E]">{site.reason}</div>
-          {site.evidenceUrls.length > 0 && <div className="mt-2 text-xs text-[#71818E]">证据：{site.evidenceUrls.map((url) => <a key={url} href={url} target="_blank" rel="noreferrer" className="ml-1 underline hover:text-accent">官方来源</a>)}</div>}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <h3 className="text-sm font-semibold text-[#17324D]">{site.companyName}</h3>
+            <span className={`rounded-full px-2 py-0.5 text-[11px] ${site.verificationStatus === 'verified' ? 'bg-[#E9F8F1] text-[#177A57]' : 'bg-[#FFF5E8] text-[#9A6325]'}`}>{site.verificationStatus === 'verified' ? '系统验证' : '用户确认'}</span>
+            {site.saved && <span className="rounded-full bg-[#EEF5FF] px-2 py-0.5 text-[11px] text-[#2E6B9A]">已入库</span>}
+          </div>
+          <div className="mt-1 truncate text-sm text-[#52697B]">{site.siteName}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-[#84929D]"><span className="truncate">{site.domain}</span><span>·</span><span>{siteKindLabel}</span></div>
         </div>
-        {canOpen && <a href={site.url} target="_blank" rel="noreferrer" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#D9E1E7] text-[#39536A] hover:border-accent hover:text-accent" title="打开已验证官网"><ExternalLink size={17} /></a>}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button type="button" onClick={() => setShowDetails((value) => !value)} className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs text-[#607789] hover:bg-[#F1F5F7]" aria-expanded={showDetails}>
+            详情{showDetails ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+          {canOpen && <a href={site.url} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#D9E1E7] px-2.5 text-xs font-medium text-[#39536A] hover:border-accent hover:text-accent" title={openLabel}><ExternalLink size={14} />{openLabel}</a>}
+        </div>
       </div>
-      {onSave && !site.saved && site.verificationStatus === 'verified' && site.saveable !== false && <button type="button" onClick={onSave} className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-accent px-3 py-2 text-sm text-accent hover:bg-[#FFF3EE]">保存到官网库</button>}
+      {showDetails && (
+        <div className="mt-3 border-t border-[#EDF1F4] pt-3 text-xs leading-5">
+          <div className="break-all text-[#71818E]">{site.url}</div>
+          <div className="mt-1.5 text-[#46677E]">{site.reason}</div>
+          {site.verificationStatus === 'verified' && site.evidenceUrls.length > 0 && <div className="mt-1.5 text-[#71818E]">验证证据：{site.evidenceUrls.map((url) => <a key={url} href={url} target="_blank" rel="noreferrer" className="ml-1 underline hover:text-accent">来源</a>)}</div>}
+          {onSave && !site.saved && site.verificationStatus === 'verified' && site.saveable !== false && <button type="button" onClick={onSave} className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-accent px-3 py-1.5 text-xs text-accent hover:bg-[#FFF3EE]">保存到官网库</button>}
+        </div>
+      )}
     </article>
+  );
+}
+
+function CampusSitesArtifactView({ sites, onSaveCampusSite }: { sites: AgentCampusSiteCard[]; onSaveCampusSite?: (site: AgentCampusSiteCard) => void }) {
+  const [showAll, setShowAll] = useState(false);
+  const visibleSites = showAll ? sites : sites.slice(0, 4);
+  const savedCount = sites.filter((site) => site.saved).length;
+  const verifiedCount = sites.filter((site) => site.verificationStatus === 'verified').length;
+  return (
+    <section className="rounded-md border border-[#DDE6EC] bg-[#F8FAFB] p-3">
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 px-0.5">
+        <div>
+          <div className="text-sm font-semibold text-[#29445C]">校招入口 <span className="font-normal text-[#7B8B97]">· {sites.length} 条</span></div>
+          <div className="mt-0.5 text-xs text-[#84929D]">{savedCount} 条已入库{verifiedCount ? ` · ${verifiedCount} 条系统验证` : ''}</div>
+        </div>
+        {sites.length > 4 && <button type="button" onClick={() => setShowAll((value) => !value)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[#47687F] hover:bg-white">{showAll ? '收起' : `展开其余 ${sites.length - 4} 条`}{showAll ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>}
+      </div>
+      <div className="space-y-2">
+        {visibleSites.map((site) => <AgentCampusSiteCardView key={site.url} site={site} onSave={onSaveCampusSite ? () => onSaveCampusSite(site) : undefined} />)}
+      </div>
+    </section>
   );
 }
 
@@ -142,11 +181,7 @@ export default function AgentArtifacts({
         }
 
         if (artifact.kind === 'campus_sites' && artifact.campusSites?.length) {
-          return (
-            <div key={`campus-sites-${artifactIndex}`} className="space-y-2.5">
-              {artifact.campusSites.map((site) => <AgentCampusSiteCardView key={`${site.companyName}-${site.url}`} site={site} onSave={onSaveCampusSite ? () => onSaveCampusSite(site) : undefined} />)}
-            </div>
-          );
+          return <CampusSitesArtifactView key={`campus-sites-${artifactIndex}`} sites={artifact.campusSites} onSaveCampusSite={onSaveCampusSite} />;
         }
 
         if (artifact.kind === 'campus_site_candidates' && artifact.campusSiteCandidates?.length) {

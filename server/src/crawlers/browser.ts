@@ -3,8 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import http from 'http';
 import { getPlatformConfig } from '../platformRegistry';
+import { DATA_DIR } from '../runtimePaths';
 
-const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const DEBUG_PORT = 9222;
 const CHROME_PATHS = [
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',

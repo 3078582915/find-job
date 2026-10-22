@@ -206,7 +206,7 @@ function normalizeCampusSiteUrl(rawUrl: string) {
 }
 
 function campusSiteCardKey(site: any) {
-  return `${String(site?.companyName || '').trim().toLowerCase()}|${normalizeCampusSiteUrl(String(site?.url || ''))}`;
+  return normalizeCampusSiteUrl(String(site?.url || ''));
 }
 
 function coalesceCampusSiteArtifacts(artifacts: AgentArtifact[]) {
@@ -238,6 +238,8 @@ function coalesceCampusSiteArtifacts(artifacts: AgentArtifact[]) {
       mergedSites[existingIndex] = {
         ...current,
         ...site,
+        companyName: current.companyName,
+        siteName: current.siteName,
         verificationStatus: current.verificationStatus === 'verified' || site.verificationStatus === 'verified'
           ? 'verified'
           : 'user_confirmed',
@@ -450,6 +452,10 @@ export async function runAgentConversation(
 
   const lastUserMessage = storedMessages[storedMessages.length - 1]?.content || '';
   let finalText = extractFinalText(finalOutput) || streamedText.trim() || '任务已经处理完成。';
+  finalText = finalText
+    .replace(/(^|\n)\s*数据库入库回执：[^\n]*/g, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   appendMissingPendingActionArtifacts(conversationId, userId, artifacts, seenArtifacts);
   appendImplicitCrawlConfirmationIfNeeded(
     conversationId,

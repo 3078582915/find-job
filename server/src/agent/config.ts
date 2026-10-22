@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import { DATA_DIR } from '../runtimePaths';
 
-const SERVER_ROOT = path.resolve(__dirname, '..', '..');
-const CONFIG_PATH = path.join(SERVER_ROOT, 'data', 'agent-model.json');
+const CONFIG_PATH = path.join(DATA_DIR, 'agent-model.json');
 const CURRENT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 interface StoredAgentConfig {

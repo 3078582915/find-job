@@ -1,9 +1,9 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { DATA_DIR } from './runtimePaths';
 
-const DB_PATH = path.join(__dirname, '..', 'data', 'app.db');
-const DATA_DIR = path.dirname(DB_PATH);
+const DB_PATH = path.join(DATA_DIR, 'app.db');
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 

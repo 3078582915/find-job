@@ -13,6 +13,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import AgentArtifacts, { type ActionState } from '../components/agent/AgentArtifacts';
+import AgentMessageContent from '../components/agent/AgentMessageContent';
 import ModelSettingsModal from '../components/agent/ModelSettingsModal';
 import * as api from '../services/api';
 import type {
@@ -70,7 +71,7 @@ function normalizeCampusSiteUrl(rawUrl: string) {
 }
 
 function campusSiteKey(site: AgentCampusSiteCard) {
-  return `${site.companyName.trim().toLowerCase()}|${normalizeCampusSiteUrl(site.url)}`;
+  return normalizeCampusSiteUrl(site.url);
 }
 
 function normalizeCampusSiteCard(site: AgentCampusSiteCard): AgentCampusSiteCard {
@@ -85,6 +86,8 @@ function mergeCampusSiteCards(current: AgentCampusSiteCard, next: AgentCampusSit
   return {
     ...current,
     ...next,
+    companyName: current.companyName,
+    siteName: current.siteName,
     verificationStatus: current.verificationStatus === 'verified' || next.verificationStatus === 'verified'
       ? 'verified'
       : 'user_confirmed',
@@ -520,9 +523,11 @@ export default function AgentWorkspace() {
                       <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#E8F8F3] text-[#087F67]"><Bot size={17} /></div>
                     )}
                     <div className={message.role === 'user' ? 'max-w-[78%] rounded-md bg-[#193653] px-4 py-3 text-sm leading-6 text-white' : 'min-w-0 max-w-[calc(100%-44px)] flex-1'}>
-                      <div className={`whitespace-pre-wrap break-words text-sm leading-6 ${message.role === 'assistant' ? 'text-[#29445C]' : ''}`}>
-                        {message.content || (sending && message.id.startsWith('assistant-') ? '' : '任务已经处理完成。')}
-                      </div>
+                      {message.role === 'assistant' ? (
+                        <AgentMessageContent content={message.content || (sending && message.id.startsWith('assistant-') ? '' : '任务已经处理完成。')} />
+                      ) : (
+                        <div className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</div>
+                      )}
                       {message.role === 'assistant' && (
                         <AgentArtifacts
                           artifacts={artifactsOf(message)}

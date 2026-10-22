@@ -311,9 +311,9 @@ export function createCampusSite(input: CampusSiteInput) {
   }
 
   const duplicate = db.prepare(
-    'SELECT id FROM campus_sites WHERE company_name = ? AND official_url = ? LIMIT 1'
-  ).get(companyName, raw) as { id: string } | undefined;
-  if (duplicate) throw new CampusSiteDuplicateError('该公司已经存在相同链接的官网记录');
+    'SELECT id FROM campus_sites WHERE official_url = ? LIMIT 1'
+  ).get(raw) as { id: string } | undefined;
+  if (duplicate) throw new CampusSiteDuplicateError('该链接已存在于校招官网库');
 
   const now = new Date().toISOString();
   const id = uuidv4();
@@ -493,9 +493,9 @@ export function updateCampusSite(id: string, input: Partial<CampusSiteInput> & {
   const url = input.officialUrl === undefined ? current.official_url : ensureSafeUrl(input.officialUrl).raw;
   const domain = ensureSafeUrl(url).domain;
   const duplicate = db.prepare(
-    'SELECT id FROM campus_sites WHERE company_name = ? AND official_url = ? AND id <> ? LIMIT 1'
-  ).get(companyName, url, id) as { id: string } | undefined;
-  if (duplicate) throw new CampusSiteDuplicateError('该公司已经存在相同链接的官网记录');
+    'SELECT id FROM campus_sites WHERE official_url = ? AND id <> ? LIMIT 1'
+  ).get(url, id) as { id: string } | undefined;
+  if (duplicate) throw new CampusSiteDuplicateError('该链接已存在于校招官网库');
 
   const nextStatus = input.status || current.status;
   const now = new Date().toISOString();
